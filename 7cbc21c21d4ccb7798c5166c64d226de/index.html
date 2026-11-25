@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="theme-color" content="#0f3b5f">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%F0%9F%A7%8A%3C/text%3E%3C/svg%3E">
-<title>Dairy Stocktake – Autoprod</title>
+<title>Stocktake – Autoprod</title>
 <style>
 :root{--b:#0f3b5f;--a:#1d7fd1;--g:#16a34a;--r:#dc2626;--o:#d97706;--bg:#f2f6fa;--line:#d5dfe9}
 *{box-sizing:border-box}
@@ -59,7 +59,7 @@ input[type=file]{display:none}
 </style>
 </head>
 <body>
-<header><h1>🧊 Dairy Stocktake</h1><small>Autoprod · v1.3.0</small></header>
+<header><h1>🧊 Stocktake</h1><small>Autoprod · v1.3.1</small></header>
 <main>
   <section class="card">
     <h2>1. Add photos or a short video</h2>
@@ -850,7 +850,7 @@ $('bXlsx').onclick=async()=>{
   const btn=$('bXlsx');btn.disabled=true;
   try{
     const t=table();const rows=exportRows();
-    const wb=new ExcelJS.Workbook();wb.creator='Autoprod Dairy Stocktake';const ws=wb.addWorksheet('Stocktake',{views:[{state:'frozen',xSplit:2,ySplit:1}]});
+    const wb=new ExcelJS.Workbook();wb.creator='Autoprod Stocktake';const ws=wb.addWorksheet('Stocktake',{views:[{state:'frozen',xSplit:2,ySplit:1}]});
     const W=[16,36,8,40,16,18,14,8,10,18,16,12,20,14,22,7,8,9,10,10,10,10,10,50,34];
     ws.columns=HEAD.map((h,i)=>({header:h,width:W[i]||12}));
     ws.getRow(1).font={bold:true};ws.getRow(1).alignment={wrapText:true,vertical:'middle'};ws.getRow(1).height=32;
@@ -865,13 +865,13 @@ $('bXlsx').onclick=async()=>{
     }
     ws.autoFilter={from:{row:1,column:1},to:{row:1,column:HEAD.length}};
     const buf=await wb.xlsx.writeBuffer();
-    dl(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),'dairy-stocktake-'+today()+'.xlsx');
+    dl(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),'stocktake-'+today()+'.xlsx');
   }catch(e){alert('Could not make the Excel file: '+e.message+'. Try CSV.');}
   btn.disabled=false;
 };
 $('bCsv').onclick=()=>{
   const csv=table().map((r,ri)=>r.slice(1).map((c,ci)=>{c=String(c??'');const bc=ci===BC-1;if(ri&&bc&&c)c='="'+c+'"';return /[",\n]/.test(c)&&!(ri&&bc)?'"'+c.replace(/"/g,'""')+'"':c;}).join(',')).join('\r\n');
-  dl(new Blob(['\ufeff'+csv],{type:'text/csv'}),'dairy-stocktake-'+today()+'.csv');
+  dl(new Blob(['\ufeff'+csv],{type:'text/csv'}),'stocktake-'+today()+'.csv');
 };
 // ---- stocktake sheet (Excel + PDF) ----
 const SHEAD=['Brand','Item Description','UOM','Units per UOM','Unit','Estimated Count','Manual Count','Final Count','Check'];
@@ -881,8 +881,8 @@ function sheetRows(){return exportRows().map(r=>{const e=Number(estOf(r))||0;con
   return {r,why,vals:[blank(r.brand)?(r.brand||''):r.brand,descOf(r),uomOf(r)||(r.pack_type||'each'),isCase(r)?(r.upc||''):1,unitOf(r),r.manualOnly&&!Object.keys(r.src||{}).length&&r.est===''?'':e,m,m!==''?m:e,why.length?'YES':'']};});}
 const sydDate=()=>new Intl.DateTimeFormat('en-AU',{timeZone:'Australia/Sydney',day:'2-digit',month:'2-digit',year:'numeric'}).format(new Date());
 $('bSheetX').onclick=async()=>{
-  try{const wb=new ExcelJS.Workbook();wb.creator='Autoprod Dairy Stocktake';const ws=wb.addWorksheet('Stocktake sheet',{pageSetup:{orientation:'landscape',paperSize:9,fitToPage:true,fitToWidth:1,fitToHeight:0}});
-    ws.addRow(['Autoprod · Dairy Stocktake — Stocktake sheet']).font={bold:true,size:14};
+  try{const wb=new ExcelJS.Workbook();wb.creator='Autoprod Stocktake';const ws=wb.addWorksheet('Stocktake sheet',{pageSetup:{orientation:'landscape',paperSize:9,fitToPage:true,fitToWidth:1,fitToHeight:0}});
+    ws.addRow(['Autoprod · Stocktake — Stocktake sheet']).font={bold:true,size:14};
     ws.addRow(['Date: '+sydDate()+' (Sydney)    Red rows = quantity or details guessed, please check']).font={italic:true,color:{argb:'FF9C0006'}};
     const h=ws.addRow(SHEAD);h.font={bold:true};h.eachCell(c=>{c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFDCE6F1'}};c.border={bottom:{style:'thin'}};});
     ws.columns=[18,44,20,10,8,12,12,12,8].map(w=>({width:w}));
@@ -894,13 +894,13 @@ $('bSheetX').onclick=async()=>{
 };
 $('bSheetP').onclick=()=>{
   try{const {jsPDF}=window.jspdf;const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
-    doc.setFontSize(15);doc.setFont(undefined,'bold');doc.text('Autoprod · Dairy Stocktake — Stocktake sheet',14,14);
+    doc.setFontSize(15);doc.setFont(undefined,'bold');doc.text('Autoprod · Stocktake — Stocktake sheet',14,14);
     doc.setFontSize(10);doc.setFont(undefined,'normal');doc.text('Date: '+sydDate()+' (Sydney)',14,21);doc.setTextColor(156,0,6);doc.text('Red rows = quantity or details guessed, please check',90,21);doc.setTextColor(0,0,0);
     const rows=sheetRows();
     doc.autoTable({startY:26,head:[SHEAD],body:rows.map(x=>x.vals.map(v=>v===''?'':String(v))),styles:{fontSize:9,cellPadding:1.8,overflow:'linebreak'},headStyles:{fillColor:[15,59,95]},
       columnStyles:{0:{cellWidth:34},1:{cellWidth:78},2:{cellWidth:38},3:{cellWidth:18,halign:'center'},4:{cellWidth:14,halign:'center'},5:{cellWidth:22,halign:'center'},6:{cellWidth:22,halign:'center'},7:{cellWidth:22,halign:'center',fontStyle:'bold'},8:{cellWidth:15,halign:'center'}},
       didParseCell:d=>{if(d.section==='body'&&rows[d.row.index].why.length){d.cell.styles.fillColor=[255,199,206];d.cell.styles.textColor=[120,0,6];}},
-      didDrawPage:d=>{doc.setFontSize(8);doc.setTextColor(120);doc.text('Autoprod Dairy Stocktake v1.3.0 · page '+doc.internal.getNumberOfPages(),14,doc.internal.pageSize.getHeight()-6);doc.setTextColor(0);}});
+      didDrawPage:d=>{doc.setFontSize(8);doc.setTextColor(120);doc.text('Autoprod Stocktake v1.3.1 · page '+doc.internal.getNumberOfPages(),14,doc.internal.pageSize.getHeight()-6);doc.setTextColor(0);}});
     doc.save('stocktake-sheet-'+today()+'.pdf');
   }catch(e){alert('Could not make the PDF: '+e.message);}
 };
