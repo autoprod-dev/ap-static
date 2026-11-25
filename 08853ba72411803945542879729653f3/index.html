@@ -320,6 +320,24 @@ label.btn{cursor:pointer}
 .rpt-empty,.rpt-none{color:var(--muted);font-style:italic;padding:1px 0 1px 8px}
 .rpt-subtot{display:flex;justify-content:space-between;gap:8px;color:var(--muted);font-size:.75rem;font-weight:700;padding:2px 0 0}
 .rpt-total{display:flex;justify-content:space-between;gap:8px;font-weight:850;padding-top:6px;margin-top:4px;border-top:2px solid var(--ink)}
+.rpt-site{border-top:2px solid var(--ink);padding:8px 0 6px;margin-top:6px}
+.rpt-site:first-of-type{border-top:0;padding-top:0;margin-top:0}
+.rpt-site-h{margin:0 0 4px;font-size:.86rem;letter-spacing:.04em;text-transform:uppercase}
+.rpt-group{padding:4px 0 3px}
+.rpt-group + .rpt-group{border-top:1px solid var(--line)}
+.rpt-subh{margin:2px 0 1px 8px;font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;font-weight:700}
+.rpt-grid-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:2px 0 6px}
+.rpt-grid{width:100%;border-collapse:collapse;font-size:.72rem;line-height:1.2}
+.rpt-grid th,.rpt-grid td{padding:4px 5px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line);vertical-align:baseline}
+.rpt-grid th:first-child,.rpt-grid td:first-child{text-align:left;white-space:normal;min-width:92px;padding-left:0}
+.rpt-grid thead th{font-size:.65rem;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);font-weight:700}
+.rpt-grid .tot{font-weight:800}
+.rpt-grid tbody th{font-weight:650;text-align:left}
+@media print{
+  .rpt-grid{font-size:8pt}
+  .rpt-grid-wrap{overflow:visible}
+}
+
 .daylist a,.daylist .dayrow{display:flex;align-items:center;gap:8px;width:100%;text-align:left;min-height:48px;padding:8px 10px;border:1px solid var(--line);border-radius:12px;background:#fff;margin-bottom:6px;text-decoration:none;color:inherit;cursor:pointer}
 .daylist a.on,.daylist .dayrow.on{border-color:var(--teal);background:var(--teal-s)}
 .daylist a .grow,.daylist .dayrow .grow{flex:1}
@@ -334,7 +352,9 @@ label.btn{cursor:pointer}
   main{max-width:none;margin:0;padding:0}
   .card{box-shadow:none;border:1px solid #ccc;break-inside:avoid}
   #report-sheet.card,#day-sheet.card{break-inside:auto;border:0;border-radius:0;padding:0;margin:0;box-shadow:none}
-  .rpt-day{break-inside:avoid}
+  .rpt-day,.rpt-group{break-inside:avoid}
+  .rpt-site{break-inside:auto}
+  .rpt-site-h{break-after:avoid}
   .rpt-total{break-inside:avoid}
   .print-only{display:block !important}
   .rpt{font-size:10pt;line-height:1.25;color:#000}
@@ -371,7 +391,7 @@ label.btn{cursor:pointer}
 (function(){
 "use strict";
 
-const VERSION = "1.4.1";
+const VERSION = "1.4.2";
 const STORE = "ward-run-v1";
 const TZ = "Australia/Sydney";
 const DOW = {Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6};
@@ -452,16 +472,17 @@ const CH_EXTRA_WARDS = [
 ];
 /* R2a / R2b were the v1.0 abbreviations for Rec 2 rooms a and b. */
 const CH_RENAME = {R2a:"Rec 2 room a", R2b:"Rec 2 room b"};
-const CH_RETIRED_IDS = ["w-rec2","w-rec-2-station","w-rec-2-med-rooms","w-r2a","w-r2b","w-r2"];
-const CH_RETIRED_NAMES = ["rec2","rec 2","rec 2 station","rec 2 med rooms","rec 2 room a","rec 2 room b","r2","r2a","r2b"];
+const CH_RETIRED_IDS = ["w-rec2","w-rec-2-med-rooms"];
+const CH_RETIRED_NAMES = ["rec2","rec 2","rec 2 med rooms","rec 2 medroom","rec 2 medrooms","rec 2 med room"];
+const CH_RESTORE_IDS = ["w-rec-2-station","w-r2a","w-r2b"];
 function isRetiredWard(w){
   if (!w) return false;
   if (CH_RETIRED_IDS.includes(w.id)) return true;
   const n = String(w.name||"").toLowerCase().replace(/\s+/g," ").trim();
   if (!n) return false;
   if (CH_RETIRED_NAMES.includes(n)) return true;
-  if (/^rec\s*2(\b|$)/.test(n)) return true;
-  if (/^rec\s*med\s*rooms?$/.test(n) || /^rec\s*medrooms?$/.test(n)) return true;
+  if (/^rec\s*2$/.test(n)) return true;
+  if (/^rec\s*2\s*med\s*rooms?$/.test(n) || /^rec\s*2\s*medrooms?$/.test(n)) return true;
   return false;
 }
 
@@ -518,7 +539,7 @@ const CH_TICKS = ["Strap","Slush"];
 
 let S = null;
 let route = {page:"round", wardId:null, day:null, week:null};
-let reportSite = "all";
+let reportLayout = "item";
 let toastTimer = 0;
 let draftOrder = null;
 let stockQuery = "";
@@ -718,31 +739,270 @@ function renderDayBlock(rep, showSite){
 function weekReports(monday, siteFilter){
   return weekDates(monday, siteFilter).map(iso => dayReport(iso, siteFilter));
 }
-function reportPlainText(monday, siteFilter){
-  const heading = "Delivered fluids – week of " + weekHeading(monday);
-  const site = "Site: " + siteLabel(siteFilter);
-  const days = weekReports(monday, siteFilter);
-  const weekBag = days.reduce((acc, d) => addUnits(acc, d.units), {box:0, ea:0});
-  const parts = [heading, site, ""];
-  days.forEach(rep => {
-    parts.push(prettyDate(rep.iso));
-    if (!rep.hasAnything){
-      parts.push("  No deliveries");
-    } else {
-      rep.wards.forEach(w => {
-        const tag = (siteFilter==="all" && w.siteName) ? " ("+w.siteName+")" : "";
-        parts.push("  " + w.name + tag);
-        if (w.nothing && !w.lines.length) parts.push("    Nothing needed");
-        else if (w.emptyChecked && !w.lines.length) parts.push("    Logged, no items");
-        else w.lines.forEach(l => parts.push("    " + l.label + "  " + l.qty + " " + l.unit));
+function reportLayoutLabel(layout){
+  if (layout==="ward") return "By ward";
+  if (layout==="grid" || layout==="day") return "Item × day";
+  return "By item";
+}
+function reportSiteList(){
+  return (S.sites||[]).slice();
+}
+function reportMonday(){
+  const ziso = zonedNow().iso;
+  return (route.week && /^\d{4}-\d{2}-\d{2}$/.test(route.week)) ? mondayOf(route.week) : mondayOf(ziso);
+}
+function siteWeekReports(monday, siteId){
+  return weekDates(monday, siteId).map(iso => dayReport(iso, siteId));
+}
+function siteWeekBag(days){
+  return (days||[]).reduce((acc, d) => addUnits(acc, d.units), {box:0, ea:0});
+}
+function siteHasAnything(days){
+  return (days||[]).some(d => d.hasAnything);
+}
+function dayShort(iso){
+  const [y,m,d] = String(iso||"").split("-").map(Number);
+  if (!y) return "";
+  const dt = new Date(Date.UTC(y, m-1, d, 12));
+  return new Intl.DateTimeFormat("en-AU",{timeZone:"UTC", weekday:"short"}).format(dt);
+}
+function itemKey(line){
+  if (line.codeId) return "id:"+line.codeId;
+  return "lb:"+String(line.label||"").toLowerCase();
+}
+function itemGroups(days){
+  const map = new Map();
+  (days||[]).forEach(rep => {
+    (rep.wards||[]).forEach(w => {
+      (w.lines||[]).forEach(l => {
+        const key = itemKey(l);
+        if (!map.has(key)) map.set(key, {key, codeId:l.codeId, code:l.code||"", name:l.name||"", label:l.label, rows:[], units:{box:0, ea:0}});
+        const g = map.get(key);
+        g.rows.push({iso:rep.iso, wardId:w.id, wardName:w.name, qty:l.qty, unit:l.unit, code:l.code||"", name:l.name||"", label:l.label});
+        const bag = {box:0, ea:0};
+        bag[l.unit] = l.qty;
+        g.units = addUnits(g.units, bag);
       });
-      parts.push("  Day total: " + fmtUnitBag(rep.units));
+    });
+  });
+  return [...map.values()].sort((a,b) => String(a.code||a.label).localeCompare(String(b.code||b.label), undefined, {numeric:true}) || String(a.name||"").localeCompare(String(b.name||"")));
+}
+function itemUnitRows(days){
+  const map = new Map();
+  (days||[]).forEach(rep => {
+    (rep.wards||[]).forEach(w => {
+      (w.lines||[]).forEach(l => {
+        const key = itemKey(l) + "|" + l.unit;
+        if (!map.has(key)) map.set(key, {code:l.code||"", name:l.name||"", label:l.label, unit:l.unit, byDay:{}, total:0});
+        const g = map.get(key);
+        g.byDay[rep.iso] = (g.byDay[rep.iso]||0) + l.qty;
+        g.total += l.qty;
+      });
+    });
+  });
+  return [...map.values()].sort((a,b) => String(a.code||a.label).localeCompare(String(b.code||b.label), undefined, {numeric:true}) || String(a.unit).localeCompare(String(b.unit)));
+}
+function wardGroups(days){
+  const map = new Map();
+  (days||[]).forEach(rep => {
+    (rep.wards||[]).forEach(w => {
+      if (!map.has(w.id)) map.set(w.id, {id:w.id, name:w.name, items:[], nothing:false, emptyChecked:false, units:{box:0, ea:0}});
+      const g = map.get(w.id);
+      const itemMap = new Map(g.items.map(it => [itemKey(it)+"|"+it.unit, it]));
+      (w.lines||[]).forEach(l => {
+        const key = itemKey(l)+"|"+l.unit;
+        if (!itemMap.has(key)){
+          const it = {codeId:l.codeId, code:l.code||"", name:l.name||"", label:l.label, unit:l.unit, qty:0};
+          itemMap.set(key, it);
+          g.items.push(it);
+        }
+        itemMap.get(key).qty += l.qty;
+      });
+      g.units = addUnits(g.units, unitsOf(w.lines));
+      if (w.nothing && !(w.lines||[]).length) g.nothing = true;
+      if (w.emptyChecked && !(w.lines||[]).length) g.emptyChecked = true;
+    });
+  });
+  return [...map.values()];
+}
+function gridIsos(days){
+  const isos = (days||[]).map(d => d.iso);
+  const has = {};
+  isos.forEach(iso => { const dow = dowOf(iso); if (dow===6) has.sat = true; if (dow===0) has.sun = true; });
+  return isos.filter(iso => {
+    const dow = dowOf(iso);
+    if (dow>=1 && dow<=5) return true;
+    if (dow===6) return !!has.sat;
+    if (dow===0) return !!has.sun;
+    return false;
+  });
+}
+function renderLayoutItem(days){
+  const groups = itemGroups(days);
+  if (!groups.length) return `<div class="rpt-empty" style="padding-left:0">No deliveries this week</div>`;
+  return groups.map(g =>
+    `<div class="rpt-line"><span class="item">${esc(g.label)}</span><span class="qty">${esc(fmtUnitBag(g.units))}</span></div>`
+  ).join("");
+}
+function renderLayoutGrid(days){
+  const rows = itemUnitRows(days);
+  const isos = gridIsos(days);
+  if (!rows.length) return `<div class="rpt-empty" style="padding-left:0">No deliveries this week</div>`;
+  const head = isos.map(iso => `<th>${esc(dayShort(iso))}</th>`).join("") + `<th>Total</th>`;
+  const body = rows.map(r => {
+    const cells = isos.map(iso => {
+      const n = r.byDay[iso]||0;
+      return `<td>${n?esc(String(n)):""}</td>`;
+    }).join("");
+    return `<tr><th scope="row">${esc(r.label)}</th>${cells}<td class="tot">${esc(String(r.total))} ${esc(r.unit)}</td></tr>`;
+  }).join("");
+  return `<div class="rpt-grid-wrap"><table class="rpt-grid"><thead><tr><th>Item</th>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+function renderLayoutWard(days){
+  const groups = wardGroups(days);
+  if (!groups.length) return `<div class="rpt-empty" style="padding-left:0">No deliveries this week</div>`;
+  return groups.map(g => {
+    let body = "";
+    if (g.items.length){
+      body = g.items.map(it =>
+        `<div class="rpt-line"><span class="item">${esc(it.label)}</span><span class="qty">${esc(String(it.qty))} ${esc(it.unit)}</span></div>`
+      ).join("");
+    } else if (g.nothing){
+      body = `<div class="rpt-none">Nothing needed</div>`;
+    } else if (g.emptyChecked){
+      body = `<div class="rpt-none">Logged, no items</div>`;
     }
+    const tot = g.items.length ? `<div class="rpt-subtot"><span>Ward total</span><span>${esc(fmtUnitBag(g.units))}</span></div>` : "";
+    return `<div class="rpt-group"><div class="rpt-ward">${esc(g.name)}</div>${body}${tot}</div>`;
+  }).join("");
+}
+function renderSiteSection(site, days, layout){
+  const body = layout==="ward" ? renderLayoutWard(days) : layout==="grid" || layout==="day" ? renderLayoutGrid(days) : renderLayoutItem(days);
+  const bag = siteWeekBag(days);
+  return `<section class="rpt-site" data-site="${esc(site.id)}"><h3 class="rpt-site-h">${esc(site.name)}</h3>${body}<div class="rpt-subtot"><span>${esc(site.name)} total</span><span>${esc(fmtUnitBag(bag))}</span></div></section>`;
+}
+function renderWeekBody(monday, layout){
+  return reportSiteList().map(site => renderSiteSection(site, siteWeekReports(monday, site.id), layout)).join("");
+}
+function weekGrandBag(monday){
+  return reportSiteList().reduce((acc, site) => addUnits(acc, siteWeekBag(siteWeekReports(monday, site.id))), {box:0, ea:0});
+}
+function reportPlainText(monday, layout){
+  layout = layout || reportLayout || "item";
+  if (layout==="day") layout = "grid";
+  const heading = "Delivered fluids – week of " + weekHeading(monday);
+  const parts = [heading, "Layout: " + reportLayoutLabel(layout), ""];
+  reportSiteList().forEach(site => {
+    const days = siteWeekReports(monday, site.id);
+    const bag = siteWeekBag(days);
+    parts.push(site.name);
+    if (!siteHasAnything(days)){
+      parts.push("  No deliveries this week");
+    } else if (layout==="ward"){
+      wardGroups(days).forEach(g => {
+        parts.push("  " + g.name);
+        if (g.items.length){
+          g.items.forEach(it => parts.push("    " + it.label + "  " + it.qty + " " + it.unit));
+          parts.push("    Ward total: " + fmtUnitBag(g.units));
+        } else if (g.nothing) parts.push("    Nothing needed");
+        else if (g.emptyChecked) parts.push("    Logged, no items");
+      });
+    } else if (layout==="grid"){
+      const isos = gridIsos(days);
+      const rows = itemUnitRows(days);
+      parts.push("  Item  " + isos.map(dayShort).join("  ") + "  Total");
+      rows.forEach(r => {
+        const cells = isos.map(iso => r.byDay[iso] ? String(r.byDay[iso]) : "-");
+        parts.push("  " + r.label + "  " + cells.join("  ") + "  " + r.total + " " + r.unit);
+      });
+    } else {
+      itemGroups(days).forEach(g => parts.push("  " + g.label + "  " + fmtUnitBag(g.units)));
+    }
+    parts.push("  " + site.name + " total: " + fmtUnitBag(bag));
     parts.push("");
   });
-  parts.push("Week total: " + fmtUnitBag(weekBag));
+  parts.push("Week total: " + fmtUnitBag(weekGrandBag(monday)));
   return parts.join("\n").trim() + "\n";
 }
+function sheetNameFor(site, used){
+  let name = String((site && site.name) || "Site").replace(/[:\\/?*\[\]]/g," ").trim() || "Site";
+  name = name.slice(0,31);
+  let out = name, n = 2;
+  while (used.has(out.toLowerCase())){
+    const suffix = " " + n;
+    out = name.slice(0, 31 - suffix.length) + suffix;
+    n++;
+  }
+  used.add(out.toLowerCase());
+  return out;
+}
+function weekSheetRows(site, monday){
+  const days = siteWeekReports(monday, site.id);
+  const bag = siteWeekBag(days);
+  const rows = [];
+  rows.push(["Delivered fluids – week of " + weekHeading(monday)]);
+  rows.push([site.name]);
+  rows.push([site.name + " total", fmtUnitBag(bag)]);
+  rows.push([]);
+  rows.push(["By item"]);
+  rows.push(["Code","Item","Qty","Unit"]);
+  const items = itemGroups(days);
+  if (!items.length){
+    rows.push(["No deliveries this week","","",""]);
+  } else {
+    items.forEach(g => {
+      if (g.units.box) rows.push([g.code||"", g.name||g.label, g.units.box, "box"]);
+      if (g.units.ea) rows.push([g.code||"", g.name||g.label, g.units.ea, "ea"]);
+    });
+  }
+  rows.push([]);
+  rows.push(["Item × day"]);
+  const isos = gridIsos(days);
+  rows.push(["Code","Item"].concat(isos.map(dayShort)).concat(["Total","Unit"]));
+  const gridRows = itemUnitRows(days);
+  if (!gridRows.length){
+    rows.push(["No deliveries this week"]);
+  } else {
+    gridRows.forEach(r => {
+      rows.push([r.code||"", r.name||r.label].concat(isos.map(iso => r.byDay[iso]||"")).concat([r.total, r.unit]));
+    });
+  }
+  rows.push([]);
+  rows.push(["By ward"]);
+  rows.push(["Ward","Code","Item","Qty","Unit"]);
+  const wards = wardGroups(days);
+  if (!wards.length){
+    rows.push(["No deliveries this week","","","",""]);
+  } else {
+    wards.forEach(g => {
+      if (g.items.length){
+        g.items.forEach(it => rows.push([g.name, it.code||"", it.name||it.label, it.qty, it.unit]));
+      } else if (g.nothing){
+        rows.push([g.name, "", "Nothing needed", "", ""]);
+      } else if (g.emptyChecked){
+        rows.push([g.name, "", "Logged, no items", "", ""]);
+      }
+    });
+  }
+  return rows;
+}
+function exportWeekXlsx(monday){
+  monday = monday || reportMonday();
+  loadVendor("vendor/xlsx.mini.min.js", "XLSX").then(X => {
+    const wb = X.utils.book_new();
+    const used = new Set();
+    reportSiteList().forEach(site => {
+      const rows = weekSheetRows(site, monday);
+      const ws = X.utils.aoa_to_sheet(rows);
+      ws["!cols"] = [{wch:22},{wch:34},{wch:12},{wch:12},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10},{wch:8}];
+      X.utils.book_append_sheet(wb, ws, sheetNameFor(site, used));
+    });
+    const out = X.write(wb, {bookType:"xlsx", type:"array"});
+    downloadBlob(new Blob([out], {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), "ward-run-week-" + monday + ".xlsx");
+    toast("Excel downloaded · " + reportSiteList().map(s => s.name).join(" and ") + " sheets");
+  }).catch(() => toast("Excel export not available"));
+}
+
 function recordedDays(){
   return Object.keys(S.rounds||{}).filter(iso => dayHasDeliveries(iso, "all")).sort().reverse();
 }
@@ -1545,6 +1805,7 @@ function defaultState(){
     version: 2,
     appVersion: VERSION,
     powWardSeed: POW_WARD_SEED,
+    chRetiredSeed: 2,
     sites: [
       {id:SITE_POW, name:"POW"},
       {id:SITE_CH, name:"Children's"}
@@ -1570,9 +1831,11 @@ function load(){
     if (!raw){ S = defaultState(); save(); return; }
     S = JSON.parse(raw);
     migrate(S);
+    draftOrder = S.draftOrder || null;
     save();
   }catch(e){
     S = defaultState();
+    draftOrder = null;
   }
 }
 function siteExists(s, id){ return (s.sites||[]).some(x => x.id===id); }
@@ -1657,6 +1920,15 @@ function migrate(s){
     .sort((a,b) => (chIndex[a.id]??chByName[String(a.name||"").toLowerCase()]??99) - (chIndex[b.id]??chByName[String(b.name||"").toLowerCase()]??99));
   const unknown = chWards.filter(w => !known.includes(w)).sort((a,b)=>a.order-b.order);
   known.concat(unknown).forEach((w,i) => { w.order = i; });
+  const chSeed = Number(s.chRetiredSeed)||0;
+  if (chSeed < 2){
+    s.wards.forEach(w => {
+      if (CH_RESTORE_IDS.includes(w.id) || ["rec 2 station","rec 2 room a","rec 2 room b"].includes(String(w.name||"").toLowerCase().replace(/\s+/g," ").trim())){
+        w.enabled = true;
+      }
+    });
+    s.chRetiredSeed = 2;
+  }
   s.wards.forEach(w => { if (isRetiredWard(w)) w.enabled = false; });
 
   const seed = Number(s.powWardSeed)||0;
@@ -1763,8 +2035,19 @@ function migrate(s){
   s.appVersion = VERSION;
 }
 function save(){
-  try{ localStorage.setItem(STORE, JSON.stringify(S)); }
-  catch(e){ toast("Could not save — storage may be full"); }
+  try{
+    S.draftOrder = draftOrder ? JSON.parse(JSON.stringify(draftOrder)) : null;
+    localStorage.setItem(STORE, JSON.stringify(S));
+  }catch(e){ toast("Could not save — storage may be full"); }
+}
+function rememberView(){
+  if (!S || !S.settings) return;
+  S.settings.lastHash = (location.hash||"").replace(/^#/, "") || "round";
+  S.settings.lastScroll = window.scrollY || document.documentElement.scrollTop || 0;
+}
+function flushSave(){
+  if (S){ rememberView(); save(); }
+  if (typeof G!=="undefined" && G) gSave();
 }
 
 function currentSiteId(){
@@ -1776,6 +2059,7 @@ function setCurrentSite(id){
   if (!siteById(id)) return;
   S.settings.currentSiteId = id;
   draftOrder = null;
+  S.draftOrder = null;
   save();
   if (route.page==="round-ward"){
     const w = wardById(route.wardId);
@@ -1956,9 +2240,17 @@ function parseRoute(){
   else route = {page, wardId:null, day:null, week:null};
 }
 
-function render(){
+let keepScroll = false;
+let resumeScroll = null;
+function render(opts){
   parseRoute();
   const z = zonedNow();
+  const stay = keepScroll || (opts && opts.keepScroll);
+  keepScroll = false;
+  let y;
+  if (stay) y = window.scrollY || document.documentElement.scrollTop || 0;
+  else if (resumeScroll!=null) y = resumeScroll;
+  else y = 0;
   clearTimeout(toastTimer);
   document.getElementById("toast").classList.remove("show");
   renderBar(z);
@@ -1976,9 +2268,17 @@ function render(){
   else view.innerHTML = renderRoundList(z);
   const navPage = (page==="round-ward") ? "round" : (page==="history"||page==="setup"||page==="report") ? "more" : page;
   document.querySelectorAll("nav.tabbar a").forEach(a => a.classList.toggle("on", a.dataset.nav===navPage));
-  requestAnimationFrame(() => window.scrollTo(0, 0));
+  const pin = () => window.scrollTo(0, y);
+  pin();
+  requestAnimationFrame(pin);
+  if (resumeScroll!=null){
+    setTimeout(pin, 0);
+    setTimeout(pin, 50);
+    setTimeout(pin, 200);
+  }
   maybeNotify(z);
 }
+function renderStay(){ keepScroll = true; render({keepScroll:true}); }
 
 function renderSiteToggle(){
   if (!S.sites || S.sites.length<2) return "";
@@ -2409,32 +2709,31 @@ function renderHistory(z, pop){
 }
 
 function renderReport(z){
-  let monday = route.week && /^\d{4}-\d{2}-\d{2}$/.test(route.week) ? mondayOf(route.week) : mondayOf(z.iso);
-  const siteFilter = (reportSite && reportSite!=="") ? reportSite : "all";
-  const days = weekReports(monday, siteFilter);
-  const weekBag = days.reduce((acc, d) => addUnits(acc, d.units), {box:0, ea:0});
+  const monday = route.week && /^\d{4}-\d{2}-\d{2}$/.test(route.week) ? mondayOf(route.week) : mondayOf(z.iso);
+  const layout = reportLayout==="ward" || reportLayout==="grid" || reportLayout==="day" ? (reportLayout==="day"?"grid":reportLayout) : "item";
+  const weekBag = weekGrandBag(monday);
   const heading = "Delivered fluids – week of " + weekHeading(monday);
-  const showSite = siteFilter==="all";
-  const siteBtns = [`<button type="button" data-act="report-site" data-id="all" class="${siteFilter==="all"?"on":""}">All</button>`]
-    .concat((S.sites||[]).map(s => `<button type="button" data-act="report-site" data-id="${esc(s.id)}" class="${siteFilter===s.id?"on":""}">${esc(s.name)}</button>`))
-    .join("");
-  const body = days.map(rep => renderDayBlock(rep, showSite)).join("");
+  const layoutBtns = [["item","By item"],["grid","Item × day"],["ward","By ward"]].map(([id, lab]) =>
+    `<button type="button" data-act="report-layout" data-id="${id}" class="${layout===id?"on":""}">${lab}</button>`
+  ).join("");
+  const body = renderWeekBody(monday, layout);
   return `
     <div class="weeknav noprint">
       <button type="button" class="btn" data-act="week-prev" aria-label="Previous week">‹</button>
       <div class="lab">${esc(shortDate(monday))} – ${esc(shortDate(addDays(monday,4)))}</div>
       <button type="button" class="btn" data-act="week-next" aria-label="Next week">›</button>
     </div>
-    <div class="filt noprint">${siteBtns}</div>
-    <p class="phone-note noprint">Saved on this phone only. Use Print or Copy as text to submit the week’s list.</p>
+    <div class="filt noprint">${layoutBtns}</div>
+    <p class="phone-note noprint">Excel is the week file: POW and Children's on separate sheets, with By item, Item × day and By ward. Print and Copy follow the layout on screen. Saved on this phone only.</p>
     <div class="btnrow noprint" style="margin-top:0">
-      <button type="button" class="btn primary" data-act="print-report">Print</button>
+      <button type="button" class="btn primary" data-act="export-week-xlsx">⬇ Excel</button>
+      <button type="button" class="btn" data-act="print-report">Print</button>
       <button type="button" class="btn" data-act="copy-report">Copy as text</button>
     </div>
     <div class="card rpt" id="report-sheet">
       <div class="rpt-head">
         <h2>${esc(heading)}</h2>
-        <div class="muted">${esc(siteLabel(siteFilter))}</div>
+        <div class="muted">${esc(reportLayoutLabel(layout))}</div>
       </div>
       ${body}
       <div class="rpt-total"><span>Week total</span><span>${esc(fmtUnitBag(weekBag))}</span></div>
@@ -2547,7 +2846,7 @@ function addCodeToWard(wid, cid){
     if (e.status==="nothing") e.status="pending";
   }
   touchEntry(wid, e);
-  save(); render();
+  save(); renderStay();
   const ln = document.querySelector('.line[data-cid="' + (window.CSS && CSS.escape ? CSS.escape(cid) : cid) + '"]');
   if (ln) ln.classList.add("pulse");
 }
@@ -2564,7 +2863,7 @@ function changeQty(wid, cid, dir){
     line.qty = (n==null ? 1 : n+1);
   }
   touchEntry(wid, e);
-  save(); render();
+  save(); renderStay();
 }
 function toggleLineUnit(wid, cid){
   const e = wardEntry(todayRound(), wid);
@@ -2572,13 +2871,13 @@ function toggleLineUnit(wid, cid){
   if (!line) return;
   line.unit = lineUnit(line)==="ea" ? "box" : "ea";
   touchEntry(wid, e);
-  save(); render();
+  save(); renderStay();
 }
 function removeLine(wid, cid){
   const e = wardEntry(todayRound(), wid);
   e.lines = e.lines.filter(l => l.codeId!==cid);
   touchEntry(wid, e);
-  save(); render();
+  save(); renderStay();
 }
 function markWard(wid, status){
   const e = wardEntry(todayRound(), wid);
@@ -2587,7 +2886,7 @@ function markWard(wid, status){
     e.status = "pending";
     touchEntry(wid, e);
     save();
-    render();
+    renderStay();
     return;
   }
   e.status = status;
@@ -2613,13 +2912,13 @@ function tickItem(wid, cid){
   const key = tickKey(day, wid, cid);
   S.trolley[day][key] = !S.trolley[day][key];
   if (S.trolley[day][key]){ sfx("tick"); buzz(8); }
-  save(); render();
+  save(); renderStay();
 }
 function changeStock(cid, dir){
   const c = codeById(cid); if (!c) return;
   const n = Number(c.stock)||0;
   c.stock = Math.max(0, n+dir);
-  save(); render();
+  save(); renderStay();
 }
 
 function rebuildDraftKeepEdits(z, siteId){
@@ -2751,16 +3050,16 @@ document.addEventListener("click", (ev) => {
     location.hash = "report/" + next;
     return;
   }
-  if (act==="report-site"){
-    reportSite = b.dataset.id || "all";
+  if (act==="report-layout"){
+    const id = b.dataset.id;
+    reportLayout = (id==="ward" || id==="grid" || id==="item") ? id : "item";
     render();
     return;
   }
+  if (act==="export-week-xlsx"){ exportWeekXlsx(reportMonday()); return; }
   if (act==="print-report"){ window.print(); return; }
   if (act==="copy-report"){
-    const ziso = zonedNow().iso;
-    const mon = (route.week && /^\d{4}-\d{2}-\d{2}$/.test(route.week)) ? mondayOf(route.week) : mondayOf(ziso);
-    copyText(reportPlainText(mon, reportSite||"all")).then(ok => toast(ok ? "Copied as text" : "Copy failed — long-press to copy"));
+    copyText(reportPlainText(reportMonday(), reportLayout||"day")).then(ok => toast(ok ? "Copied as text" : "Copy failed — long-press to copy"));
     return;
   }
   if (act==="celebrate-close"){ clearTimeout(celebrateTimer); document.getElementById("celebrate").classList.remove("show"); return; }
@@ -2814,7 +3113,7 @@ document.addEventListener("click", (ev) => {
     const d = ensureDraft(z);
     d.urgent = b.checked;
     d.expectedDelivery = defaultDelivery(z.iso, d.urgent);
-    render();
+    save(); renderStay();
   }
   if (act==="order-qty"){
     const d = ensureDraft(z);
@@ -2822,19 +3121,19 @@ document.addEventListener("click", (ev) => {
     if (!line) return;
     line.qty = Math.max(0, (Number(line.qty)||0) + Number(b.dataset.dir));
     if (line.qty===0) d.lines = d.lines.filter(l => l.codeId!==b.dataset.cid);
-    render();
+    save(); renderStay();
   }
   if (act==="order-unit"){
     const d = ensureDraft(z);
     const line = d.lines.find(l => l.codeId===b.dataset.cid);
     if (!line) return;
     line.unit = lineUnit(line)==="ea" ? "box" : "ea";
-    render();
+    save(); renderStay();
   }
   if (act==="order-remove"){
     const d = ensureDraft(z);
     d.lines = d.lines.filter(l => l.codeId!==b.dataset.cid);
-    render();
+    save(); renderStay();
   }
   if (act==="order-add"){
     const sid = currentSiteId();
@@ -2848,13 +3147,13 @@ document.addEventListener("click", (ev) => {
       const d = ensureDraft(z);
       const line = d.lines.find(l => l.codeId===c.id);
       if (line) line.qty = q; else d.lines.push({codeId:c.id, qty:q, usage:0, low:0, unit:"box"});
-      render();
+      save(); renderStay();
     });
   }
   if (act==="order-refresh"){
     const d = ensureDraft(z);
     rebuildDraftKeepEdits(z, d.siteId);
-    render();
+    save(); renderStay();
     toast("Suggestions recalculated");
   }
   if (act==="order-copy"){
@@ -2967,7 +3266,7 @@ document.addEventListener("change", (ev) => {
   const act = t.dataset && t.dataset.act;
   if (!act) return;
   const z = zonedNow();
-  if (act==="delivery"){ ensureDraft(z).expectedDelivery = t.value; }
+  if (act==="delivery"){ ensureDraft(z).expectedDelivery = t.value; save(); }
   if (act==="ward-on"){
     const w = wardById(t.dataset.id); if (!w) return;
     w.enabled = t.checked; save(); render();
@@ -3049,14 +3348,36 @@ window.addEventListener("hashchange", () => {
   clearTimeout(toastTimer);
   document.getElementById("toast").classList.remove("show");
   render();
+  if (S && S.settings){
+    S.settings.lastHash = (location.hash||"").replace(/^#/, "") || "round";
+    if (resumeScroll==null) S.settings.lastScroll = window.scrollY || document.documentElement.scrollTop || 0;
+    save();
+  }
 });
 window.addEventListener("pageshow", render);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState==="hidden") flushSave(); });
+window.addEventListener("pagehide", flushSave);
+window.addEventListener("scroll", () => {
+  if (!S || !S.settings) return;
+  S.settings.lastScroll = window.scrollY || document.documentElement.scrollTop || 0;
+  S.settings.lastHash = (location.hash||"").replace(/^#/, "") || "round";
+  save();
+}, {passive:true});
 
 document.addEventListener("pointerdown", (ev) => { lastTap = {x:ev.clientX, y:ev.clientY}; }, true);
+if ("scrollRestoration" in history) history.scrollRestoration = "manual";
 load();
 gLoad();
-if (!location.hash) location.hash = "#round";
-else render();
+if (!location.hash){
+  const last = S && S.settings && S.settings.lastHash;
+  if (last){
+    resumeScroll = Number(S.settings.lastScroll)||0;
+    location.hash = "#" + last;
+    setTimeout(() => { resumeScroll = null; }, 500);
+  } else {
+    location.hash = "#round";
+  }
+} else render();
 
 if ("serviceWorker" in navigator && !/e2e=1/.test(location.search)){
   navigator.serviceWorker.register("sw.js").catch(()=>{});
