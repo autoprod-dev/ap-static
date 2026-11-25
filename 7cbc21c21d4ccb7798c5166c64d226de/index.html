@@ -78,6 +78,7 @@ input[type=file]{display:none}
       <label><input type="radio" name="mode" value="sum" checked>Different bays or shelves<br><small>Add counts together</small></label>
       <label><input type="radio" name="mode" value="max">Same shelf, more angles<br><small>Take the highest count</small></label>
     </div>
+    <label class="chk"><input type="checkbox" id="strict" checked>Mark rows red for any guess (incl. supplier not printed, unreadable dates/codes)</label>
     <label class="chk"><input type="checkbox" id="dbl">Double-check each photo (slower, finds a few more)</label>
     <button class="btn big green" id="bScan" disabled>🔍 Scan</button>
     <div class="prog"><i id="prog"></i></div>
@@ -656,12 +657,12 @@ async function makeCrops(job,pairs){
 }
 // ---- check flags (red) ----
 function checkWhy(r){
-  if(r.manualOnly)return [];const w=[];
+  if(r.manualOnly)return [];const w=[];const strict=S.strict!==false;
   if(r.conf==='low')w.push('low confidence');
-  const unc=FIELDS.filter(([f])=>String(r[f]||'').toLowerCase().includes('unclear')).map(([,l])=>l);if(unc.length)w.push('unclear: '+unc.join(', '));
+  const KEYF=new Set(['brand','product','size','pack_type','uom']);const unc=FIELDS.filter(([f])=>(strict||KEYF.has(f))&&String(r[f]||'').toLowerCase().includes('unclear')).map(([,l])=>l);if(unc.length)w.push('unclear: '+unc.join(', '));
   if(UNID.test(r.name))w.push('product not identified');else if(VAGUE.test(r.name))w.push('product only partly identified');
   const h=hiddenOf(r);if(h)w.push('~'+h+' estimated behind');
-  if(!r.e_supplier&&(r.supInf||!r.supplier))w.push('supplier guessed');
+  if(strict&&!r.e_supplier&&(r.supInf||!r.supplier))w.push('supplier guessed');
   if(!r.e_brand&&!r.brand)w.push('no brand');
   return w;
 }
@@ -905,7 +906,7 @@ $('bSheetP').onclick=()=>{
 };
 $('bClear').onclick=()=>{if(!confirm('Start a new stocktake? This clears the list on this phone. Download first if you need it.'))return;S={v:2,rows:[],mode:S.mode,n:0,vids:0,scans:[]};jobs=[];for(const k in CROPS)delete CROPS[k];idbClear();save();render();drawScans();$('bScan').disabled=true;$('scanStatus').textContent='';$('addStatus').textContent='';};
 
-load();render();idbAll().then(render);
+load();$('strict').checked=S.strict!==false;$('strict').onchange=()=>{S.strict=$('strict').checked;save();render();};render();idbAll().then(render);
 document.querySelectorAll('input[name=mode]').forEach(i=>i.checked=i.value===S.mode);
 </script>
 </body>
