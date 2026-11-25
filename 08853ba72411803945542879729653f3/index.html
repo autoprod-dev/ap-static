@@ -107,7 +107,30 @@ a.btn:visited{color:var(--ink)}
 .field{display:flex;flex-direction:column;gap:4px;margin:8px 0}
 .field label{font-size:.78rem;font-weight:700;color:var(--muted)}
 .field input,.field select{min-height:44px;border:1px solid var(--line);border-radius:11px;padding:0 12px;background:#fff}
+
 .setup-item{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
+/* ===== v1.4.0 POW schedule ===== */
+.bldg{margin:16px 2px 6px;font-size:.72rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.bldg:first-child{margin-top:8px}
+.wardnote{font-size:.75rem;color:var(--ink);opacity:.72;margin-top:2px;line-height:1.3}
+.oncall-sec{margin-top:8px;padding-top:4px}
+.oncall-head{margin:18px 2px 4px}
+.oncall-head p{font-size:.78rem;font-weight:600;letter-spacing:0;text-transform:none;color:var(--muted);margin:4px 0 0}
+.ward.oncall{border-left-color:#94a3b8}
+.daychip{display:inline-block;font-size:.68rem;font-weight:700;color:var(--teal-d);background:var(--teal-s);border-radius:99px;padding:1px 7px;margin-right:4px}
+.privbox{margin-top:12px}
+.privbox label{font-size:.78rem;font-weight:700;color:var(--muted);display:block;margin-bottom:4px}
+.privbox textarea,.notesbox{width:100%;min-height:64px;border:1px solid var(--line);border-radius:11px;padding:8px 12px;font:inherit;background:#fff}
+.notesbox{min-height:0;margin:8px 0 0;color:var(--ink)}
+.setup-ward{border-bottom:1px solid var(--line);padding-bottom:8px;margin-bottom:4px}
+.setup-ward .setup-item{border-bottom:0;padding-bottom:4px}
+.setup-sub{display:grid;gap:6px;padding:0 0 6px 32px}
+.setup-sub input[type="text"]{min-height:36px;border:1px solid var(--line);border-radius:8px;padding:0 8px;font-size:.85rem;background:#fff}
+.daypicks{display:flex;gap:3px;flex-wrap:wrap;align-items:center}
+.daypicks button{min-width:36px;min-height:36px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:.68rem;font-weight:700;padding:0 6px;cursor:pointer}
+.daypicks button.on{background:var(--teal);border-color:var(--teal);color:#fff}
+.daypicks button:disabled{opacity:.4}
+.oncall-lab{display:flex;align-items:center;gap:6px;font-size:.8rem;font-weight:700;color:var(--muted)}
 .toast{position:fixed;left:50%;bottom:calc(var(--nav-h) + 12px + var(--safe-b));transform:translateX(-50%) translateY(20px);
   background:#12202a;color:#fff;padding:10px 16px;border-radius:12px;font-size:.9rem;opacity:0;pointer-events:none;transition:.2s;z-index:70;max-width:90%}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -348,18 +371,58 @@ label.btn{cursor:pointer}
 (function(){
 "use strict";
 
-const VERSION = "1.3.2";
+const VERSION = "1.4.0";
 const STORE = "ward-run-v1";
 const TZ = "Australia/Sydney";
 const DOW = {Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6};
 const SITE_POW = "s-pow";
 const SITE_CH = "s-childrens";
 
-const POW_WARD_DEFS = [
+
+const POW_WARD_SEED = 2;
+const POW_BUILDINGS = ["Main","Bright","Parkes","Campus Centre","Dickinson","Other"];
+const DAY_LABELS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const POW_PLACEHOLDERS = [
   {id:"w-pow-ot", name:"OT"},
   {id:"w-pow-recovery", name:"Recovery"},
   {id:"w-pow-storage", name:"Storage"},
   {id:"w-pow-slush-shelf", name:"Slush shelf"}
+];
+/* ASB "3 times a week" is stored as Mon/Wed/Fri. */
+const POW_WARD_DEFS = [
+  {id:"w-pow-asb", name:"ASB", building:"Main", days:[1,3,5], notes:"3 times a week (Mon, Wed, Fri). CAU is once a week; on Mondays leave 1307 and 1306a, 3 boxes each, in the store room."},
+  {id:"w-pow-8n-neuro", name:"8N Neuro", building:"Main", days:[1,3,5]},
+  {id:"w-pow-8s-neuro", name:"8S Neuro", building:"Main", days:[1,3,5]},
+  {id:"w-pow-7n-resp", name:"7N Respiratory", building:"Main", days:[1,3,5]},
+  {id:"w-pow-6n", name:"6N", building:"Main", days:[1,3,5]},
+  {id:"w-pow-6s", name:"6S", building:"Main", days:[1,3,5]},
+  {id:"w-pow-5n-aac", name:"5N Acute Aged Care", building:"Main", days:[1,3,5]},
+  {id:"w-pow-5s-ortho", name:"5S Orthopaedics", building:"Main", days:[1,3,5]},
+  {id:"w-pow-4n-haem", name:"4N Haematology", building:"Main", days:[1,3,5]},
+  {id:"w-pow-4s-rehab", name:"4S Aged Care Rehab", building:"Main", days:[2], notes:"Tuesdays, once a week."},
+  {id:"w-pow-3n-icu", name:"3N ICU", building:"Main", days:[1,3,5]},
+  {id:"w-pow-3s-cau", name:"3S CAU", building:"Main", days:[1], notes:"Mondays, once a week."},
+  {id:"w-pow-2-theatre", name:"2 New Theatre", building:"Main", days:[1,3,5]},
+  {id:"w-pow-1-recovery", name:"1 New Recovery", building:"Main", days:[1,3,5]},
+  {id:"w-pow-b2-ed", name:"B2 Emergency", building:"Main", days:[1,3,5]},
+  {id:"w-pow-b4-hodc", name:"B4 HODC", building:"Bright", days:[2,4]},
+  {id:"w-pow-radiology", name:"0 Radiology", building:"Bright", days:[2], notes:"EQ store 2, alarm door, back of reception. Staff card has no access."},
+  {id:"w-pow-p1-west", name:"P1 West", building:"Parkes", days:[2,4], notes:"Nurse station."},
+  {id:"w-pow-p1-spinal", name:"P1 Spinal", building:"Parkes", days:[2,4], notes:"Storage at the entrance — turn right, then the right door. Code 7854."},
+  {id:"w-pow-p2-west", name:"P2 West", building:"Parkes", days:[4], notes:"Ask a nurse."},
+  {id:"w-pow-urology-theatre", name:"Urology Theatre", building:"Parkes", days:[1,4], notes:"Level 3 between Parkes and Dickinson. Enter the red double door on the left. Lift from Dickinson level 3."},
+  {id:"w-pow-ct-icu", name:"CT ICU", building:"Campus Centre", days:[1,3,5]},
+  {id:"w-pow-cc-xray", name:"0 X-ray", building:"Campus Centre", onCall:true, notes:"On call."},
+  {id:"w-pow-kidney-care", name:"0 Kidney Care", building:"Dickinson", days:[2,4], notes:"Towards the cafe."},
+  {id:"w-pow-perioperative", name:"1 Perioperative", building:"Dickinson", days:[2,4], notes:"Med room."},
+  {id:"w-pow-endoscopy", name:"2 Endoscopy", building:"Dickinson", days:[2,4], notes:"Dickinson North, turn left. Code 1247."},
+  {id:"w-pow-transition-care", name:"2 Transition Care", building:"Dickinson", onCall:true, notes:"New. Red double door. They call when they need anything. Item 1307."},
+  {id:"w-pow-resp-proc", name:"2 Respiratory", building:"Dickinson", onCall:true, notes:"Procedures 4 room. On call."},
+  {id:"w-pow-3-south", name:"3 South", building:"Dickinson", onCall:true, notes:"Storage. Code c0262."},
+  {id:"w-pow-3-north", name:"3 North", building:"Dickinson", days:[2,4], notes:"Nurse station."},
+  {id:"w-pow-ccu", name:"3 Coronary Care Unit", building:"Dickinson", days:[2,4], notes:"Storage beside the nurse station."},
+  {id:"w-pow-4-renal", name:"4 Renal", building:"Dickinson", days:[1,3,5], notes:"Nurse station."},
+  {id:"w-pow-hih", name:"Hospital in House", building:"Other", onCall:true, notes:"On call."}
 ];
 const CH_WARD_DEFS = [
   {id:"w-ot1", name:"Ot1"},
@@ -454,7 +517,19 @@ function esc(s){
 function uid(prefix){ return prefix + Math.random().toString(36).slice(2,8); }
 function slug(name){ return String(name).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,""); }
 
+function testIsoDay(){
+  try{
+    if (!/[?&]e2e=1(?:&|$)/.test(location.search)) return null;
+    const m = /[?&]day=(\d{4}-\d{2}-\d{2})/.exec(location.search);
+    return m ? m[1] : null;
+  }catch(e){ return null; }
+}
 function zonedNow(){
+  const test = testIsoDay();
+  if (test){
+    const dow = dowOf(test);
+    return {iso:test, weekday:DAY_LABELS[dow], hour:9, minute:0, dow};
+  }
   const parts = {};
   for (const p of new Intl.DateTimeFormat("en-AU",{
     timeZone:TZ, year:"numeric", month:"2-digit", day:"2-digit",
@@ -784,9 +859,10 @@ function touchRun(siteId){
   const run = runFor(zonedNow().iso, siteId);
   if (!run.start && !run.complete){ run.start = Date.now(); gSave(); }
 }
-function siteProgress(siteId){
-  const r = S.rounds[zonedNow().iso];
-  const wards = S.wards.filter(w => w.enabled && w.siteId===siteId);
+function siteProgress(siteId, iso){
+  const day = iso || zonedNow().iso;
+  const r = S.rounds[day];
+  const wards = scheduledWards(siteId, day);
   const done = wards.filter(w => r && isDone(r.wards[w.id])).length;
   return {done, total:wards.length};
 }
@@ -1383,9 +1459,73 @@ function exportXlsx(){
   }).catch(() => toast("Excel export not available — try CSV"));
 }
 
+
+function wardFromDef(def, i, siteId, enabled){
+  const w = {id:def.id, name:def.name, order:i, siteId:siteId, enabled:enabled!==false, building:def.building||"", notes:def.notes||"", privateNote:"", onCall:!!def.onCall};
+  if (w.onCall) w.days = [];
+  else if (def.days) w.days = def.days.slice();
+  else if (siteId===SITE_POW) w.days = [2,4];
+  return w;
+}
+function applyPowDef(w, def, i){
+  w.id = def.id;
+  w.name = def.name;
+  w.order = i;
+  w.siteId = SITE_POW;
+  w.building = def.building||"";
+  w.notes = def.notes||"";
+  w.onCall = !!def.onCall;
+  w.days = w.onCall ? [] : (def.days ? def.days.slice() : [2,4]);
+  if (w.privateNote == null) w.privateNote = "";
+  if (w.enabled == null) w.enabled = true;
+}
+function isPowPlaceholder(w){
+  if (!w) return false;
+  return POW_PLACEHOLDERS.some(p => p.id===w.id || String(w.name||"").toLowerCase()===p.name.toLowerCase());
+}
+function wardIsOnCall(w){ return !!(w && w.onCall); }
+function wardScheduledOn(w, dow){
+  if (!w || w.enabled===false) return false;
+  if (w.onCall) return false;
+  if (!Array.isArray(w.days)) return true;
+  return w.days.includes(dow);
+}
+function scheduledWards(siteId, iso){
+  const sid = siteId || currentSiteId();
+  const dow = dowOf(iso || zonedNow().iso);
+  return S.wards.filter(w => w.enabled && w.siteId===sid && wardScheduledOn(w, dow)).sort((a,b)=>a.order-b.order);
+}
+function onCallWards(siteId){
+  const sid = siteId || currentSiteId();
+  return S.wards.filter(w => w.enabled && w.siteId===sid && w.onCall).sort((a,b)=>a.order-b.order);
+}
+function fmtDays(w){
+  if (!w) return "";
+  if (w.onCall) return "On call";
+  if (!Array.isArray(w.days)) return "Every day";
+  if (!w.days.length) return "Not scheduled";
+  if (w.days.length===3 && w.days[0]===1 && w.days[1]===3 && w.days[2]===5) return "Mon, Wed, Fri";
+  if (w.days.length===2 && w.days[0]===2 && w.days[1]===4) return "Tue, Thu";
+  if (w.days.length===1) return DAY_LABELS[w.days[0]] + " only";
+  return w.days.map(d => DAY_LABELS[d]).join(", ");
+}
+function buildingRank(name){
+  const i = POW_BUILDINGS.indexOf(name||"");
+  return i < 0 ? 99 : i;
+}
+function groupByBuilding(wards){
+  const map = new Map();
+  wards.forEach(w => {
+    const b = w.building || "";
+    if (!map.has(b)) map.set(b, []);
+    map.get(b).push(w);
+  });
+  return [...map.entries()].sort((a,b) => buildingRank(a[0]) - buildingRank(b[0]) || (a[0]||"").localeCompare(b[0]||""));
+}
+
 function defaultState(){
   const wards = [];
-  POW_WARD_DEFS.forEach((w,i) => wards.push({id:w.id, name:w.name, order:i, siteId:SITE_POW, enabled:true}));
+  POW_WARD_DEFS.forEach((w,i) => wards.push(wardFromDef(w,i,SITE_POW,true)));
   CH_WARD_DEFS.forEach((w,i) => wards.push({id:w.id, name:w.name, order:i, siteId:SITE_CH, enabled:true}));
   CH_EXTRA_WARDS.forEach((w,i) => wards.push({id:w.id, name:w.name, order:CH_WARD_DEFS.length+i, siteId:SITE_CH, enabled:false}));
   const codes = [];
@@ -1402,6 +1542,7 @@ function defaultState(){
   return {
     version: 2,
     appVersion: VERSION,
+    powWardSeed: POW_WARD_SEED,
     sites: [
       {id:SITE_POW, name:"POW"},
       {id:SITE_CH, name:"Children's"}
@@ -1515,11 +1656,35 @@ function migrate(s){
   const unknown = chWards.filter(w => !known.includes(w)).sort((a,b)=>a.order-b.order);
   known.concat(unknown).forEach((w,i) => { w.order = i; });
 
-  if (!s.wards.some(w => w.siteId===SITE_POW)){
-    POW_WARD_DEFS.forEach((def,i) => {
-      s.wards.push({id:def.id, name:def.name, order:i, siteId:SITE_POW, enabled:true});
+  const seed = Number(s.powWardSeed)||0;
+  if (seed < POW_WARD_SEED){
+    s.wards.forEach(w => {
+      if (w.siteId===SITE_POW && isPowPlaceholder(w)) w.enabled = false;
     });
+    const haveId = new Set(s.wards.map(w => w.id));
+    POW_WARD_DEFS.forEach((def,i) => {
+      let w = s.wards.find(x => x.id===def.id);
+      if (!w){
+        s.wards.push(wardFromDef(def,i,SITE_POW,true));
+        haveId.add(def.id);
+      } else {
+        applyPowDef(w, def, i);
+        if (w.enabled == null) w.enabled = true;
+      }
+    });
+    s.powWardSeed = POW_WARD_SEED;
   }
+  const powOfficial = new Set(POW_WARD_DEFS.map(d => d.id));
+  const powKnown = s.wards.filter(w => w.siteId===SITE_POW && powOfficial.has(w.id))
+    .sort((a,b) => (POW_WARD_DEFS.findIndex(d => d.id===a.id)) - (POW_WARD_DEFS.findIndex(d => d.id===b.id)));
+  const powRest = s.wards.filter(w => w.siteId===SITE_POW && !powOfficial.has(w.id)).sort((a,b)=>(a.order||0)-(b.order||0));
+  powKnown.concat(powRest).forEach((w,i) => { w.order = i; });
+  s.wards.forEach(w => {
+    if (w.building == null) w.building = "";
+    if (w.notes == null) w.notes = "";
+    if (w.privateNote == null) w.privateNote = "";
+    if (w.onCall == null) w.onCall = false;
+  });
 
   s.sites = s.sites.filter(x => x.id!=="s-main");
 
@@ -1839,11 +2004,8 @@ function renderBar(z){
   let extra = "";
   if (route.page==="round" || route.page==="round-ward"){
     const r = todayRound();
-    const wards = enabledWards();
-    const done = wards.filter(w => {
-      const e = r.wards[w.id];
-      return e && (e.status==="checked" || e.status==="nothing");
-    }).length;
+    const wards = scheduledWards(currentSiteId(), z.iso);
+    const done = wards.filter(w => isDone(r.wards[w.id])).length;
     const pct = wards.length ? Math.round(done/wards.length*100) : 0;
     extra = `<div class="progress" style="width:72px" title="${done} of ${wards.length}"><span style="width:${pct}%"></span></div>`;
     if (route.page==="round") sub = shortDate(z.iso) + " · " + done + " of " + wards.length;
@@ -1879,35 +2041,57 @@ function unitToggle(act, extra, unit){
   return `<button type="button" class="unitbtn${on?" on":""}" data-act="${esc(act)}" ${attrs} aria-pressed="${on?"true":"false"}" aria-label="${on?"Single packets, tap for boxes":"Boxes, tap for single packets"}">${on?"ea":"box"}</button>`;
 }
 
+function renderWardButton(w, r, pop, medal, extraCls){
+  const e = r.wards[w.id];
+  const status = e ? e.status : "pending";
+  const n = e ? (e.lines||[]).length : 0;
+  let chip = `<span class="chip idle">To do</span>`;
+  let meta = "Not started";
+  if (status==="nothing"){ chip = `<span class="chip">Nothing needed</span>`; meta="Checked, nothing needed"; }
+  else if (status==="checked"){ chip = `<span class="chip ok">Checked</span>`; meta = n + (n===1?" code":" codes"); }
+  else if (n){ chip = `<span class="chip warn">In progress</span>`; meta = n + (n===1?" code":" codes"); }
+  const top = (pop.byWard[w.id] && Object.keys(pop.byWard[w.id]).length)
+    ? codesForWard(w.id, pop).slice(0,2).map(c=>displayCode(c)).join(", ")
+    : "";
+  if (top && status==="pending" && !n) meta = "Often: " + top;
+  const done = isDone(e);
+  const cls = (done ? " done" : (n ? " prog" : "")) + (extraCls ? " "+extraCls : "");
+  if (done) chip = chip + ` <span class="chip xp">+${wardXp(e)}</span>`;
+  const day = `<span class="daychip">${esc(fmtDays(w))}</span>`;
+  const note = w.notes ? `<div class="wardnote">${esc(w.notes)}</div>` : "";
+  return `<button class="ward${cls}" data-act="open-ward" data-id="${esc(w.id)}">
+    <span class="medal" aria-hidden="true">${done?"✓":medal}</span>
+    <div class="grow"><div class="name">${esc(w.name)}</div><div class="muted">${day}${esc(meta)}</div>${note}</div>
+    ${chip}
+  </button>`;
+}
+function renderBuildingGroups(wards, r, pop, startAt){
+  let i = startAt||0;
+  const groups = groupByBuilding(wards);
+  const showHeads = groups.length>1 || (groups.length===1 && groups[0][0]);
+  return groups.map(([bldg, list]) => {
+    const head = showHeads ? `<div class="bldg">${esc(bldg || "Other")}</div>` : "";
+    const rows = list.map(w => { i += 1; return renderWardButton(w, r, pop, i); }).join("");
+    return head + rows;
+  }).join("");
+}
 function renderRoundList(z){
   const r = todayRound();
   const pop = popularity();
-  const wards = enabledWards();
-  if (!wards.length) return `<div class="card empty">No wards on the round yet. Add or turn some on in Setup.</div>`;
+  const wards = scheduledWards(currentSiteId(), z.iso);
+  const call = onCallWards(currentSiteId());
+  if (!wards.length && !call.length) return `<div class="card empty">No wards on the round yet. Add or turn some on in Setup.</div>`;
   const next = wards.find(w => !isDone(r.wards[w.id]));
   const nextBtn = next ? `<button type="button" class="nextup" data-act="open-ward" data-id="${esc(next.id)}"><span aria-hidden="true">🚀</span><span class="grow"><small>Next up</small>${esc(next.name)}</span><span class="arrow" aria-hidden="true">›</span></button>` : "";
-  return renderHero(z) + nextBtn + wards.map((w, wi) => {
-    const e = r.wards[w.id];
-    const status = e ? e.status : "pending";
-    const n = e ? (e.lines||[]).length : 0;
-    let chip = `<span class="chip idle">To do</span>`;
-    let meta = "Not started";
-    if (status==="nothing"){ chip = `<span class="chip">Nothing needed</span>`; meta="Checked, nothing needed"; }
-    else if (status==="checked"){ chip = `<span class="chip ok">Checked</span>`; meta = n + (n===1?" code":" codes"); }
-    else if (n){ chip = `<span class="chip warn">In progress</span>`; meta = n + (n===1?" code":" codes"); }
-    const top = (pop.byWard[w.id] && Object.keys(pop.byWard[w.id]).length)
-      ? codesForWard(w.id, pop).slice(0,2).map(c=>displayCode(c)).join(", ")
-      : "";
-    if (top && status==="pending" && !n) meta = "Often: " + top;
-    const done = isDone(e);
-    const cls = done ? " done" : (n ? " prog" : "");
-    if (done) chip = chip + ` <span class="chip xp">+${wardXp(e)}</span>`;
-    return `<button class="ward${cls}" data-act="open-ward" data-id="${esc(w.id)}">
-      <span class="medal" aria-hidden="true">${done?"✓":wi+1}</span>
-      <div class="grow"><div class="name">${esc(w.name)}</div><div class="muted">${esc(meta)}</div></div>
-      ${chip}
-    </button>`;
-  }).join("") + brandFoot();
+  const scheduled = wards.length
+    ? renderBuildingGroups(wards, r, pop, 0)
+    : `<div class="card empty">No scheduled wards today.</div>`;
+  const callBlock = call.length ? (
+    `<div class="oncall-sec"><div class="bldg oncall-head">On call<p>Not on today’s run. Open only if they need something.</p></div>` +
+    call.map(w => renderWardButton(w, r, pop, "○", "oncall")).join("") +
+    `</div>`
+  ) : "";
+  return renderHero(z) + nextBtn + scheduled + callBlock + brandFoot();
 }
 
 function renderRoundWard(z){
@@ -1953,7 +2137,12 @@ function renderRoundWard(z){
   const gain = st==="nothing" ? XP_WARD : wardXp(e);
   return `
     <div class="wardhead"><span class="chip xp">${sp.done}/${sp.total} wards</span><div class="progress"><span style="width:${pct}%"></span></div><span class="chip xp">+${gain} XP</span></div>
-    <div class="btnrow" style="margin-top:0">
+    ${w.building||w.onCall||Array.isArray(w.days)||w.notes ? `<div class="card notesbox" style="min-height:0;padding:10px 12px">${w.building?`<div class="muted">${esc(w.building)}</div>`:""}<div><span class="daychip">${esc(fmtDays(w))}</span></div>${w.notes?`<div class="wardnote" style="margin-top:6px">${esc(w.notes)}</div>`:""}</div>`:""}
+    <div class="privbox"><label for="priv-note">Private note (stays on this phone)</label>
+      <textarea id="priv-note" data-act="ward-private" data-id="${esc(w.id)}" rows="2" placeholder="Extra notes stay on this phone only.">${esc(w.privateNote||"")}</textarea>
+      <p class="muted" style="margin:6px 0 0">Extra notes stay on this phone only.</p>
+    </div>
+    <div class="btnrow" style="margin-top:12px">
       <button class="btn big ${st==="nothing"?"warn":""}" data-act="mark" data-wid="${esc(w.id)}" data-status="nothing">Nothing needed</button>
       <button class="btn big grow ${st==="checked"?"ok":"primary"}" data-act="mark" data-wid="${esc(w.id)}" data-status="checked">Mark checked ✓</button>
     </div>
@@ -2260,11 +2449,23 @@ function renderSetup(){
   const site = siteById(sid);
   const wards = S.wards.filter(w => w.siteId===sid).sort((a,b)=>a.order-b.order);
   const wardRows = wards.map((w,i) => {
-    return `<div class="setup-item">
-      <input type="checkbox" data-act="ward-on" data-id="${esc(w.id)}" ${w.enabled?"checked":""} aria-label="On the round">
-      <div class="grow"><input class="search" style="margin:0" data-act="ward-name" data-id="${esc(w.id)}" value="${esc(w.name)}"></div>
-      <button class="btn ghost" data-act="ward-move" data-id="${esc(w.id)}" data-dir="-1" ${i===0?"disabled":""} aria-label="Move up">↑</button>
-      <button class="btn ghost" data-act="ward-move" data-id="${esc(w.id)}" data-dir="1" ${i===wards.length-1?"disabled":""} aria-label="Move down">↓</button>
+    const days = w.onCall ? [] : (Array.isArray(w.days) ? w.days : [0,1,2,3,4,5,6]);
+    const picks = DAY_LABELS.map((lab,d) =>
+      `<button type="button" data-act="ward-day" data-id="${esc(w.id)}" data-day="${d}" class="${days.includes(d)?"on":""}" ${w.onCall?"disabled":""} aria-pressed="${days.includes(d)&&!w.onCall?"true":"false"}">${esc(lab)}</button>`
+    ).join("");
+    return `<div class="setup-ward">
+      <div class="setup-item">
+        <input type="checkbox" data-act="ward-on" data-id="${esc(w.id)}" ${w.enabled?"checked":""} aria-label="On the round">
+        <div class="grow"><input class="search" style="margin:0" data-act="ward-name" data-id="${esc(w.id)}" value="${esc(w.name)}"></div>
+        <button class="btn ghost" data-act="ward-move" data-id="${esc(w.id)}" data-dir="-1" ${i===0?"disabled":""} aria-label="Move up">↑</button>
+        <button class="btn ghost" data-act="ward-move" data-id="${esc(w.id)}" data-dir="1" ${i===wards.length-1?"disabled":""} aria-label="Move down">↓</button>
+      </div>
+      <div class="setup-sub">
+        <input type="text" data-act="ward-building" data-id="${esc(w.id)}" value="${esc(w.building||"")}" placeholder="Building">
+        <div class="daypicks">${picks}<label class="oncall-lab"><input type="checkbox" data-act="ward-oncall" data-id="${esc(w.id)}" ${w.onCall?"checked":""}> On call</label></div>
+        <input type="text" data-act="ward-notes" data-id="${esc(w.id)}" value="${esc(w.notes||"")}" placeholder="Access or location note">
+        <input type="text" data-act="ward-private" data-id="${esc(w.id)}" value="${esc(w.privateNote||"")}" placeholder="Private note (this phone only)">
+      </div>
     </div>`;
   }).join("");
   const codeRows = siteCodes(sid).map(c => {
@@ -2301,7 +2502,7 @@ function renderSetup(){
       <div class="btnrow"><button class="btn" data-act="site-add">Add site</button></div>
     </div>
     <div class="card"><h2>Wards — ${esc(site?site.name:"this site")}</h2>
-      <p class="muted">Tick to include on the daily round. Use the arrows to set the walking order.</p>
+      <p class="muted">Tick to include. Delivery days drive today’s list; on-call wards stay in a separate list and are never auto-scheduled. Private notes stay on this phone.</p>
       ${wardRows}
       <div class="btnrow"><button class="btn" data-act="ward-add">Add ward</button></div>
     </div>
@@ -2391,11 +2592,12 @@ function markWard(wid, status){
   save();
   if (!wasDone && isDone(e)) gameWardDone(wid);
   if (status==="checked" || status==="nothing"){
-    const wards = enabledWards();
+    const ww = wardById(wid);
+    const wards = scheduledWards(ww ? ww.siteId : currentSiteId(), zonedNow().iso);
     const i = wards.findIndex(w => w.id===wid);
-    const next = wards.slice(i+1).find(w => {
+    const next = wards.slice(Math.max(i,0)+ (i<0?0:1)).find(w => {
       const x = todayRound().wards[w.id];
-      return !x || x.status==="pending";
+      return !isDone(x);
     });
     if (next){ openWard(next.id); return; }
     location.hash = "round";
@@ -2700,13 +2902,26 @@ document.addEventListener("click", (ev) => {
     list.forEach((w,k)=>w.order=k);
     save(); render();
   }
+  if (act==="ward-day"){
+    const w = wardById(b.dataset.id); if (!w) return;
+    const d = Number(b.dataset.day);
+    if (w.onCall) w.onCall = false;
+    let days = Array.isArray(w.days) ? w.days.slice() : [0,1,2,3,4,5,6];
+    if (days.includes(d)) days = days.filter(x => x!==d);
+    else days = days.concat([d]).sort((a,c)=>a-c);
+    w.days = days;
+    save(); render();
+    return;
+  }
   if (act==="ward-add"){
     promptDlg("Add ward", [{label:"Abbreviation", placeholder:"e.g. 4n"}], ([name]) => {
       name = String(name||"").trim(); if (!name) return;
       const id = "w-"+slug(name)+"-"+uid("");
       const sid = currentSiteId();
       const max = S.wards.filter(w=>w.siteId===sid).reduce((m,w)=>Math.max(m,w.order),-1);
-      S.wards.push({id, name, order:max+1, siteId:sid, enabled:true});
+      const w = {id, name, order:max+1, siteId:sid, enabled:true, building:"", notes:"", privateNote:"", onCall:false};
+      if (sid===SITE_POW) w.days = [2,4];
+      S.wards.push(w);
       save(); render();
     });
   }
@@ -2755,6 +2970,13 @@ document.addEventListener("change", (ev) => {
     const w = wardById(t.dataset.id); if (!w) return;
     w.enabled = t.checked; save(); render();
   }
+  if (act==="ward-oncall"){
+    const w = wardById(t.dataset.id); if (!w) return;
+    w.onCall = t.checked;
+    if (w.onCall) w.days = [];
+    else if (!Array.isArray(w.days) || !w.days.length) w.days = (w.siteId===SITE_POW) ? [2,4] : [1,2,3,4,5];
+    save(); render();
+  }
   if (act==="code-par"){
     const c = codeById(t.dataset.id); if (!c) return;
     c.par = Math.max(0, Number(t.value)||0); save();
@@ -2775,6 +2997,18 @@ document.addEventListener("input", (ev) => {
   if (act==="ward-name"){
     const w = wardById(t.dataset.id); if (!w) return;
     w.name = t.value; save();
+  }
+  if (act==="ward-building"){
+    const w = wardById(t.dataset.id); if (!w) return;
+    w.building = t.value; save();
+  }
+  if (act==="ward-notes"){
+    const w = wardById(t.dataset.id); if (!w) return;
+    w.notes = t.value; save();
+  }
+  if (act==="ward-private"){
+    const w = wardById(t.dataset.id); if (!w) return;
+    w.privateNote = t.value; save();
   }
   if (act==="code-code"){
     const c = codeById(t.dataset.id); if (!c || c.tickOnly) return;
