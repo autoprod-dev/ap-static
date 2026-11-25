@@ -859,7 +859,7 @@ $('bXlsx').onclick=async()=>{
       const vals=t[i].slice();vals[BC]=vals[BC]===''?'':String(vals[BC]);
       const row=ws.addRow(vals);row.alignment={wrapText:true,vertical:'top'};row.getCell(BC+1).numFmt='@';
       const r=rows[i-1];const crop=CROPS[r.id];
-      if(crop){row.height=80;const id=wb.addImage({base64:crop,extension:'jpeg'});ws.addImage(id,{tl:{col:0.05,row:i+0.05},ext:{width:100,height:100},editAs:'oneCell'});}
+      if(crop){row.height=80;let w=100,h=100;try{const im=await imgOf(crop);const k=100/Math.max(im.naturalWidth,im.naturalHeight);w=Math.round(im.naturalWidth*k);h=Math.round(im.naturalHeight*k);}catch(e){}const id=wb.addImage({base64:crop,extension:'jpeg'});ws.addImage(id,{tl:{col:0.05,row:i+0.05},ext:{width:w,height:h},editAs:'oneCell'});}
       else row.height=Math.max(30,row.height||0);
       if(vals[2]==='YES'){row.eachCell({includeEmpty:true},c=>{c.fill=RED;});for(let c=1;c<=HEAD.length;c++){ws.getCell(i+1,c).fill=RED;}row.getCell(3).font={bold:true,color:{argb:'FF9C0006'}};}
     }
@@ -876,7 +876,7 @@ $('bCsv').onclick=()=>{
 // ---- stocktake sheet (Excel + PDF) ----
 const SHEAD=['Brand','Item Description','UOM','Units per UOM','Unit','Estimated Count','Manual Count','Final Count','Check'];
 function unitOf(r){const z=String(unitSize(r)||r.uom||r.name).toLowerCase().match(/\d(?:[\d.,]*)\s*(ml|l|lt|litre|liter|kg|g|gm)\b/);if(!z)return 'each';return {ml:'mL',l:'L',lt:'L',litre:'L',liter:'L',kg:'kg',g:'g',gm:'g'}[z[1]];}
-function descOf(r){const d=[r.product,r.variant,unitSize(r)].filter(x=>x&&!blank(x)).join(' ');return d||r.name;}
+function descOf(r){if(UNID.test(r.name)||UNID.test(r.product||''))return r.name;const d=[r.product,r.variant,unitSize(r)].filter(x=>x&&!blank(x)).join(' ');return d||r.name;}
 function sheetRows(){return exportRows().map(r=>{const e=Number(estOf(r))||0;const m=r.manual===''||r.manual==null?'':(isNaN(Number(r.manual))?r.manual:Number(r.manual));const why=checkWhy(r);
   return {r,why,vals:[blank(r.brand)?(r.brand||''):r.brand,descOf(r),uomOf(r)||(r.pack_type||'each'),isCase(r)?(r.upc||''):1,unitOf(r),r.manualOnly&&!Object.keys(r.src||{}).length&&r.est===''?'':e,m,m!==''?m:e,why.length?'YES':'']};});}
 const sydDate=()=>new Intl.DateTimeFormat('en-AU',{timeZone:'Australia/Sydney',day:'2-digit',month:'2-digit',year:'numeric'}).format(new Date());
