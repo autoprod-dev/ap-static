@@ -56,7 +56,7 @@ input[type=file]{display:none}
 </style>
 </head>
 <body>
-<header><h1>🧊 Dairy Stocktake</h1><small>Autoprod · v1.1.0</small></header>
+<header><h1>🧊 Dairy Stocktake</h1><small>Autoprod · v1.2.0</small></header>
 <main>
   <section class="card">
     <h2>1. Add photos or a short video</h2>
@@ -153,8 +153,10 @@ function sameProduct(a,b){
   if(va.length&&vb.length&&(va.some(v=>!vb.includes(v))||vb.some(v=>!va.includes(v))))return false;
   return hit===sm.size||(hit/sm.size>=0.8&&sm.size>=3);
 }
+const isCase=x=>/^(case|crate|box|tray)$/i.test(String(x.pack_type||''));
+function hiddenOf(r){const h=r.hsrc||{};const k=Object.keys(h);if(!k.length)return 0;if(S.mode==='sum')return k.reduce((a,x)=>a+h[x],0);let best=k[0];for(const x of k)if((r.src[x]||0)>(r.src[best]||0))best=x;return h[best]||0;}
 function estOf(r){const v=Object.values(r.src||{});if(!v.length)return r.est===''||r.est==null?'':r.est;return S.mode==='sum'?v.reduce((a,b)=>a+b,0):Math.max(...v);}
-function casesOf(r){const v=Object.values(r.csrc||{});if(!v.length)return 0;return S.mode==='sum'?v.reduce((a,b)=>a+b,0):Math.max(...v);}
+function casesOf(r){if(isCase(r)){const e=Number(estOf(r));return e||0;}const v=Object.values(r.csrc||{});if(!v.length)return 0;return S.mode==='sum'?v.reduce((a,b)=>a+b,0):Math.max(...v);}
 function joinVals(old,nv){const set=String(old||'').split(/;\s*/).filter(Boolean);if(!blank(nv)&&!set.includes(nv)){const i=set.indexOf('unclear');if(i>=0)set.splice(i,1);set.push(nv);}else if(!set.length&&nv)set.push(nv);return set.join('; ');}
 function addItems(label,items,accumulate){
   for(const it of items){
@@ -165,13 +167,23 @@ function addItems(label,items,accumulate){
       FIELDS.forEach(([f])=>{if(r['e_'+f])return;if(MULTI.has(f))r[f]=joinVals(r[f],it[f]);else if(blank(r[f])&&it[f])r[f]=(blank(it[f])&&r[f])?r[f]:it[f];});
       if(it.confidence==='high'||r.conf==='low')r.conf=it.confidence;
     }
-    const c=it.count||(/^(case|crate|box|tray)$/i.test(it.pack_type)?it.cases:0)||0;r.src[label]=accumulate?(r.src[label]||0)+c:Math.max(r.src[label]||0,c);
+    const c=it.count||(isCase(it)?it.cases:0)||it.visible||1;r.src[label]=accumulate?(r.src[label]||0)+c:Math.max(r.src[label]||0,c);
+    r.hsrc=r.hsrc||{};r.hsrc[label]=Math.max(r.hsrc[label]||0,Math.min(c,it.hidden_estimate||0));
+    if(it.unit_size&&!r.unit_size)r.unit_size=it.unit_size;if(it.unit_pack&&!r.unit_pack)r.unit_pack=it.unit_pack;
     if(it.cases){r.csrc=r.csrc||{};r.csrc[label]=accumulate?(r.csrc[label]||0)+it.cases:Math.max(r.csrc[label]||0,it.cases);if(it.units_per_case)r.upc=it.units_per_case;}
     const bits=[];if(it.confidence!=='high')bits.push(it.confidence+' confidence'+(it.note?': '+it.note:''));if(it.other_text)bits.push(it.other_text);
     r.auto=r.auto||[];for(const b of bits)if(!r.auto.includes(b)&&r.auto.length<6)r.auto.push(b);
   }
 }
-function noteOf(r){const p=[];const cs=casesOf(r);if(cs)p.push(cs+(cs===1?' case':' cases')+(r.upc?' × '+r.upc+' = '+cs*r.upc+' units':''));if(r.note)p.push(r.note);if(!r.noteEdited&&r.auto&&r.auto.length)p.push(...r.auto);return p.join(' | ');}
+function parseSize(s){const m=String(s||'').toLowerCase().replace(/,/g,'.').match(/(\d+(?:\.\d+)?)\s*(ml|l|lt|litre|liter|kg|g|gm)\b/);if(!m)return null;let v=parseFloat(m[1]),u=m[2];if(/^(l|lt|litre|liter)$/.test(u)){v*=1000;u='ml';}if(u==='kg'){v*=1000;u='g';}if(u==='gm')u='g';return {v,u};}
+function fmtAmt(v,u){const big=v>=1000;const n=big?v/1000:v;return (Math.round(n*100)/100)+(u==='g'?(big?'kg':'g'):(big?'L':'ml'));}
+const plural=(n,w)=>n+' '+(n===1?w:(/(ch|sh|x|s)$/.test(w)?w+'es':w+'s'));
+function unitSize(r){return r.unit_size||r.size||'';}
+function totalUnits(r){const e=Number(estOf(r))||0;if(isCase(r))return r.upc?e*r.upc:'';return e;}
+function totalAmt(r){const u=totalUnits(r);const z=parseSize(unitSize(r)||r.uom||r.name);if(!u||!z)return '';return fmtAmt(u*z.v,z.u);}
+function uomOf(r){if(r.e_uom)return r.uom;if(isCase(r)&&r.upc&&unitSize(r))return 'Case '+r.upc+' x '+unitSize(r);return r.uom||'';}
+function mathNote(r){if(!isCase(r)||!r.upc)return '';const cs=casesOf(r);const tu=cs*r.upc;const z=unitSize(r);const amt=totalAmt(r);return plural(cs,'case')+' x '+r.upc+(z?' x '+z:'')+' = '+plural(tu,r.unit_pack||'unit')+(amt?', '+amt:'');}
+function noteOf(r){const p=[];const m=mathNote(r);if(m)p.push(m);const h=hiddenOf(r);if(h)p.push('includes ~'+h+' estimated behind');if(r.note)p.push(r.note);if(!r.noteEdited&&r.auto&&r.auto.length)p.push(...r.auto);return p.join(' | ');}
 
 // ---- rendering ----
 function srcText(r){const e=Object.entries(r.src||{});return e.length?e.map(([k,v])=>k+' ('+v+')').join(', '):(r.manualOnly?'Added by hand':'');}
@@ -183,15 +195,17 @@ function render(){
     <label>Product name${r.conf&&r.conf!=='high'?' · <b style="color:#d97706">'+esc(r.conf)+' confidence</b>':''}</label><input class="name" data-f="name" value="${esc(r.name)}">
     <div class="grid">
       <div><label>Pack type</label><input class="f ${r.pack_type==='unclear'?'unclear':''}" data-f="pack_type" value="${esc(r.pack_type)}"></div>
-      <div><label>UOM</label><input class="f ${r.uom==='unclear'?'unclear':''}" data-f="uom" value="${esc(r.uom)}"></div>
-      <div><label>Estimated</label><input class="q est" inputmode="numeric" data-f="est" value="${esc(estOf(r))}" ${Object.keys(r.src||{}).length?'readonly':''}></div>
+      <div><label>UOM</label><input class="f ${r.uom==='unclear'?'unclear':''}" data-f="uom" value="${esc(uomOf(r))}"></div>
+      <div><label>Brand</label><input class="f ${r.brand==='unclear'?'unclear':''}" data-f="brand" value="${esc(r.brand)}"></div>
+      <div><label>Supplier</label><input class="f ${r.supplier==='unclear'?'unclear':''}" data-f="supplier" value="${esc(r.supplier)}"></div>
+      <div><label>Estimated${isCase(r)?' (cases)':''}${hiddenOf(r)?' · ~'+hiddenOf(r)+' behind':''}</label><input class="q est" inputmode="numeric" data-f="est" value="${esc(estOf(r))}" ${Object.keys(r.src||{}).length?'readonly':''}></div>
       <div><label>Manual count</label><input class="q" inputmode="decimal" data-f="manual" value="${esc(r.manual)}" placeholder="—"></div>
     </div>
     <details><summary>Label details (codes, dates, batch)</summary><div class="grid">
-      ${FIELDS.filter(([f])=>!['pack_type','uom'].includes(f)).map(([f,l])=>`<div><label>${l}</label><input class="f ${String(r[f]).includes('unclear')?'unclear':''}" data-f="${f}" value="${esc(r[f])}"></div>`).join('')}
+      ${FIELDS.filter(([f])=>!['pack_type','uom','brand','supplier'].includes(f)).map(([f,l])=>`<div><label>${l}</label><input class="f ${String(r[f]).includes('unclear')?'unclear':''}" data-f="${f}" value="${esc(r[f])}"></div>`).join('')}
     </div></details>
     <textarea data-f="note" placeholder="Notes">${esc(r.noteEdited?r.note:noteOf(r))}</textarea>
-    <div class="src">📸 ${esc(srcText(r))}</div></div>`).join('');
+    ${mathNote(r)?'<div class="src">📦 '+esc(mathNote(r))+'</div>':''}<div class="src">📸 ${esc(srcText(r))}</div></div>`).join('');
   const est=S.rows.reduce((a,r)=>a+(Number(estOf(r))||0),0);
   const low=S.rows.filter(r=>r.conf==='low').length;
   $('total').textContent=S.rows.length+' products · '+est+' units estimated'+(low?' · '+low+' to check (orange)':'');
@@ -304,15 +318,15 @@ async function runScan(){
 $('bScan').onclick=runScan;
 
 // ---- export ----
-const HEAD=['Product Name','Brand','Product','Variant','Size','Pack Type','UOM','Barcode','Product Code','Use-by / Best-before','Batch / Lot','Supplier','Cases','Units per Case','Estimated Quantity','Manual Quantity','Confidence','Notes','Source Image'];
+const HEAD=['Product Name','Brand','Product','Variant','Size','Pack Type','UOM','Barcode','Product Code','Use-by / Best-before','Batch / Lot','Supplier','Cases','Units per Case','Total Units','Total Size','Estimated Quantity','Est. Hidden (included)','Manual Quantity','Confidence','Notes','Source Image'];
 function table(){return [HEAD,...S.rows.filter(r=>r.name.trim()||r.manual).map(r=>{const e=estOf(r);const m=r.manual===''?'':(isNaN(Number(r.manual))?r.manual:Number(r.manual));const cs=casesOf(r);
-  return [r.name.trim(),r.brand,r.product,r.variant,r.size,r.pack_type,r.uom,r.barcode,r.product_code,r.use_by,r.batch,r.supplier,cs||'',r.upc||'',e===''?'':Number(e),m,r.manualOnly?'':(r.conf||''),r.noteEdited?r.note:noteOf(r),srcText(r)].map(v=>v==null?'':v);})];}
+  return [r.name.trim(),r.brand,r.product,r.variant,r.size,r.pack_type,uomOf(r),r.barcode,r.product_code,r.use_by,r.batch,r.supplier,cs||'',isCase(r)?(r.upc||''):'',totalUnits(r),totalAmt(r),e===''?'':Number(e),hiddenOf(r)||'',m,r.manualOnly?'':(r.conf||''),r.noteEdited?r.note:noteOf(r),srcText(r)].map(v=>v==null?'':v);})];}
 function dl(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},2000);}
 $('bXlsx').onclick=()=>{
   const t=table();const ws=XLSX.utils.aoa_to_sheet(t);
   // keep barcodes as text so Excel doesn't turn them into 9.3E+12
   for(let i=1;i<t.length;i++){const ref=XLSX.utils.encode_cell({r:i,c:7});if(ws[ref]){ws[ref].t='s';ws[ref].v=String(t[i][7]);}}
-  ws['!cols']=[36,16,18,14,8,10,16,16,12,20,14,16,7,8,10,10,10,44,30].map(w=>({wch:w}));ws['!autofilter']={ref:ws['!ref']};
+  ws['!cols']=[36,16,18,14,8,10,18,16,12,20,14,22,7,8,9,10,10,10,10,10,50,30].map(w=>({wch:w}));ws['!autofilter']={ref:ws['!ref']};
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Stocktake');
   const out=XLSX.write(wb,{bookType:'xlsx',type:'array'});dl(new Blob([out],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),'dairy-stocktake-'+today()+'.xlsx');
 };
