@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
 <meta name="theme-color" content="#0f3b5f">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%F0%9F%A7%8A%3C/text%3E%3C/svg%3E">
 <title>Dairy Stocktake – Autoprod</title>
 <style>
 :root{--b:#0f3b5f;--a:#1d7fd1;--g:#16a34a;--r:#dc2626;--bg:#f2f6fa;--line:#d5dfe9}
@@ -143,7 +144,7 @@ function addResult(label,items){
     if(!r){r={id:uid(),name:it.name,src:{},manual:'',note:'',edited:false};S.rows.push(r);}
     else if(!r.edited&&it.name.length>r.name.length)r.name=it.name;
     r.src[label]=Math.max(r.src[label]||0,it.count);
-    const bits=[];if(it.confidence&&it.confidence!=='high')bits.push(it.confidence+' confidence');if(it.note&&!/brand not visible/i.test(it.note))bits.push(it.note);
+    const bits=[];if(it.confidence&&it.confidence!=='high')bits.push(it.confidence+' confidence');if(it.note&&it.confidence!=='high')bits.push(it.note);
     if(!r.noteEdited&&bits.length){const add=bits.join('; ');if(!r.note.includes(add))r.note=(r.note?r.note+' | ':'')+add;}
   }
 }
