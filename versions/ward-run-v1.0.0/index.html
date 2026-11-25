@@ -1,0 +1,1256 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="googlebot" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#0f766e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Ward Run">
+<meta name="description" content="Private offline helper for a daily ward stock run. Data stays on this phone.">
+<title>Ward Run</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<style>
+:root{
+  --bg:#f3f6f8; --card:#fff; --ink:#12202a; --muted:#5b6b75; --line:#e2e8eb;
+  --teal:#0f766e; --teal-d:#0b5c56; --teal-s:#e6f4f2; --amber:#d97706; --amber-s:#fff7ed;
+  --red:#dc2626; --red-s:#fef2f2; --ok:#15803d; --ok-s:#ecfdf3; --chip:#eef3f5;
+  --nav-h:64px; --safe-t:env(safe-area-inset-top,0px); --safe-b:env(safe-area-inset-bottom,0px);
+  --shadow:0 1px 2px rgba(18,32,42,.06), 0 4px 12px rgba(18,32,42,.04);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+  font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  -webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent}
+body{padding:0}
+button,input,select,textarea{font:inherit;color:inherit}
+button{appearance:none;-webkit-appearance:none}
+.skip{position:absolute;left:-999px;top:0}
+.skip:focus{left:8px;top:8px;z-index:80;background:#fff;padding:8px}
+.appbar{position:sticky;top:0;z-index:40;background:var(--teal);color:#fff;
+  padding:calc(10px + var(--safe-t)) 14px 12px;display:flex;align-items:center;gap:10px}
+.appbar h1{margin:0;font-size:1.15rem;letter-spacing:-.02em;flex:1}
+.appbar .sub{margin:0;color:#d1eeea;font-size:.78rem;font-weight:600}
+.appbar .back{min-width:44px;min-height:44px;border:0;background:transparent;color:#fff;border-radius:10px;font-size:1.2rem}
+.appbar .back:active{background:rgba(255,255,255,.15)}
+#banners{padding:0 12px}
+.banner{margin:10px 0 0;padding:10px 12px;border-radius:12px;background:var(--amber-s);border:1px solid #f6d19a;color:#7c4a00;font-size:.9rem}
+.banner.late{background:var(--red-s);border-color:#fecaca;color:#991b1b}
+.banner b{display:block}
+main{max-width:520px;margin:0 auto;padding:12px 12px calc(var(--nav-h) + 22px + var(--safe-b))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px;box-shadow:var(--shadow)}
+.row{display:flex;align-items:center;gap:10px}
+.grow{flex:1;min-width:0}
+.muted{color:var(--muted);font-size:.82rem}
+h2{font-size:1rem;margin:0 0 8px}
+h3{font-size:.86rem;margin:14px 0 8px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.btn{min-height:44px;padding:0 14px;border-radius:11px;border:1px solid var(--line);background:var(--card);
+  font-weight:650;cursor:pointer;color:var(--ink);text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
+a.btn:visited{color:var(--ink)}
+.btn:active{transform:scale(.98)}
+.btn.primary,a.btn.primary,a.btn.primary:visited{background:var(--teal);border-color:var(--teal);color:#fff}
+.btn.ok{background:var(--ok);border-color:var(--ok);color:#fff}
+.btn.warn{background:var(--amber);border-color:var(--amber);color:#fff}
+.btn.ghost{background:transparent}
+.btn.danger{background:var(--red-s);border-color:#fecaca;color:var(--red)}
+.btn.block{width:100%}
+.btn[disabled]{opacity:.45}
+.btnrow{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.progress{height:6px;background:#d5e5e3;border-radius:99px;overflow:hidden;margin-top:8px}
+.progress>span{display:block;height:100%;background:#fff;border-radius:99px}
+.appbar .progress{background:rgba(255,255,255,.25);margin:0}
+.appbar .progress>span{background:#fff}
+.ward{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:12px;min-height:56px;
+  border:1px solid var(--line);background:var(--card);border-radius:14px;margin-bottom:8px;box-shadow:var(--shadow)}
+.ward:active{transform:scale(.99)}
+.ward .name{font-weight:700;font-size:1.05rem}
+.ward .meta{font-size:.8rem;color:var(--muted)}
+.chip{display:inline-flex;align-items:center;padding:2px 8px;border-radius:99px;font-size:.7rem;font-weight:700;background:var(--chip);color:var(--muted)}
+.chip.ok{background:var(--ok-s);color:var(--ok)}
+.chip.warn{background:var(--amber-s);color:var(--amber)}
+.chip.idle{background:#eef1f3}
+.codes{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.codebtn{min-height:52px;border:1px solid var(--line);background:var(--chip);border-radius:12px;
+  font-weight:700;padding:6px 4px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.codebtn .cn{font-size:.68rem;font-weight:600;color:var(--muted);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.codebtn.on{background:var(--teal-s);border-color:var(--teal);color:var(--teal-d)}
+.codebtn.hot{box-shadow:inset 0 0 0 2px var(--teal)}
+.line{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
+.line:last-child{border-bottom:0}
+.line .code{font-weight:800;font-variant-numeric:tabular-nums}
+.stepper{display:flex;align-items:center;gap:0;border:1px solid var(--line);border-radius:11px;overflow:hidden;background:#fff}
+.stepper button{width:44px;height:44px;border:0;background:#f3f6f8;font-size:1.2rem;font-weight:700;cursor:pointer}
+.stepper button:active{background:#e6eeef}
+.stepper .q{min-width:42px;text-align:center;font-weight:800;font-variant-numeric:tabular-nums}
+.trolley{margin-bottom:12px}
+.trolley h2{display:flex;align-items:center;gap:8px}
+.tickrow{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 10px;min-height:56px;
+  border:1px solid var(--line);background:var(--card);border-radius:12px;margin-bottom:8px}
+.tickrow.open{background:var(--amber-s);border-color:#f3c77a;box-shadow:0 0 0 2px rgba(217,119,6,.12)}
+.tickrow.done{opacity:.62}
+.tickrow.done .code{text-decoration:line-through}
+.tick{width:28px;height:28px;border-radius:8px;border:2px solid var(--teal);flex:none;display:grid;place-items:center;background:#fff}
+.tickrow.done .tick{background:var(--teal);color:#fff}
+.low{color:var(--red);font-weight:700;font-size:.75rem}
+.stockrow{display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--line)}
+.stockrow:last-child{border-bottom:0}
+.rank{display:flex;align-items:center;gap:8px;margin:6px 0}
+.bar{flex:1;height:8px;background:#e6eeef;border-radius:99px;overflow:hidden}
+.bar>span{display:block;height:100%;background:var(--teal);border-radius:99px}
+.search{width:100%;min-height:44px;border:1px solid var(--line);border-radius:11px;padding:0 12px;background:#fff;margin-bottom:10px}
+.field{display:flex;flex-direction:column;gap:4px;margin:8px 0}
+.field label{font-size:.78rem;font-weight:700;color:var(--muted)}
+.field input,.field select{min-height:44px;border:1px solid var(--line);border-radius:11px;padding:0 12px;background:#fff}
+.setup-item{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
+.toast{position:fixed;left:50%;bottom:calc(var(--nav-h) + 12px + var(--safe-b));transform:translateX(-50%) translateY(20px);
+  background:#12202a;color:#fff;padding:10px 16px;border-radius:12px;font-size:.9rem;opacity:0;pointer-events:none;transition:.2s;z-index:70;max-width:90%}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+nav.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:50;background:#fff;border-top:1px solid var(--line);
+  display:flex;justify-content:space-around;padding:4px 2px var(--safe-b);height:calc(var(--nav-h) + var(--safe-b))}
+nav.tabbar a{flex:1;text-align:center;text-decoration:none;color:var(--muted);font-size:.68rem;font-weight:700;
+  padding:6px 0 4px;display:flex;flex-direction:column;align-items:center;gap:2px;border-radius:10px}
+nav.tabbar a svg{width:22px;height:22px}
+nav.tabbar a.on{color:var(--teal)}
+.brandfoot{margin-top:18px;text-align:center;color:var(--muted);font-size:.75rem}
+.brandfoot img{width:12px;height:12px;vertical-align:-1px;margin-right:4px}
+dialog{border:0;border-radius:16px;padding:16px;width:min(420px,calc(100vw - 32px));box-shadow:0 16px 50px rgba(0,0,0,.2)}
+dialog::backdrop{background:rgba(18,32,42,.4)}
+.empty{padding:22px 8px;text-align:center;color:var(--muted)}
+.hidden{display:none !important}
+.site-tag{font-size:.7rem;color:var(--teal);font-weight:700}
+</style>
+</head>
+<body>
+<a class="skip" href="#view">Skip to content</a>
+<header class="appbar" id="appbar"></header>
+<div id="banners"></div>
+<main id="view" tabindex="-1"></main>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<nav class="tabbar" aria-label="Main">
+  <a href="#round" data-nav="round" id="nav-round">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Round</a>
+  <a href="#trolleys" data-nav="trolleys" id="nav-trolleys">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><rect x="3" y="6" width="14" height="10" rx="2"/><circle cx="8" cy="19" r="1.6"/><circle cx="16" cy="19" r="1.6"/><path d="M17 8h3l1 5h-4"/></svg>Trolleys</a>
+  <a href="#stock" data-nav="stock" id="nav-stock">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M4 7h16v12H4z"/><path d="M8 7V5h8v2"/><path d="M4 12h16"/></svg>Stock</a>
+  <a href="#order" data-nav="order" id="nav-order">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M5 5h14v14H5z"/><path d="M8 9h8M8 13h5"/></svg>Order</a>
+  <a href="#more" data-nav="more" id="nav-more">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="6" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18" cy="12" r="1.6"/></svg>More</a>
+</nav>
+<dialog id="dlg"></dialog>
+<noscript><p style="padding:20px">Ward Run needs JavaScript turned on.</p></noscript>
+<script>
+(function(){
+"use strict";
+
+const VERSION = "1.0.0";
+const STORE = "ward-run-v1";
+const TZ = "Australia/Sydney";
+const DOW = {Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6};
+const DEFAULT_WARDS = ["Ot1","Rec1","C1SW","C1N","Rec2","R2a","R2b","CT","L1s","L1n","B1 Ed","8n","7n","7s","6n","6s","5n","3n"];
+const EXTRA_WARDS = ["R1","R2"];
+const DEFAULT_CODES = ["7113","7123","7163","7114","7606","7616","1324","1323","1322","1307","1313","1064","1253","2544","2584","2324","2323","2026","3025","6066","6024","0063","0087","0304","0953a","0956a"];
+
+let S = null;
+let route = {page:"round", wardId:null};
+let toastTimer = 0;
+let draftOrder = null; // in-progress order on the Order screen
+
+function esc(s){
+  return String(s==null?"":s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function uid(prefix){ return prefix + Math.random().toString(36).slice(2,8); }
+function slug(name){ return String(name).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,''); }
+
+function zonedNow(){
+  const parts = {};
+  for (const p of new Intl.DateTimeFormat('en-AU',{
+    timeZone:TZ, year:'numeric', month:'2-digit', day:'2-digit',
+    weekday:'short', hour:'2-digit', minute:'2-digit', hour12:false
+  }).formatToParts(new Date())){
+    if (p.type !== 'literal') parts[p.type] = p.value;
+  }
+  return {
+    iso: parts.year + '-' + parts.month + '-' + parts.day,
+    weekday: parts.weekday,
+    hour: Number(parts.hour),
+    minute: Number(parts.minute),
+    dow: DOW[parts.weekday] ?? 0
+  };
+}
+function addDays(iso, n){
+  const [y,m,d] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m-1, d+n, 12));
+  return dt.toISOString().slice(0,10);
+}
+function dowOf(iso){
+  const [y,m,d] = iso.split('-').map(Number);
+  return new Date(Date.UTC(y, m-1, d, 12)).getUTCDay();
+}
+function prettyDate(iso){
+  if (!iso) return '';
+  const [y,m,d] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m-1, d, 12));
+  return new Intl.DateTimeFormat('en-AU',{timeZone:'UTC', weekday:'short', day:'numeric', month:'short', year:'numeric'}).format(dt);
+}
+function shortDate(iso){
+  if (!iso) return '';
+  const [y,m,d] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m-1, d, 12));
+  return new Intl.DateTimeFormat('en-AU',{timeZone:'UTC', weekday:'short', day:'numeric', month:'short'}).format(dt);
+}
+
+function defaultState(){
+  const siteId = "s-main";
+  const wards = DEFAULT_WARDS.map((name,i) => ({id:'w-'+slug(name), name, order:i, siteId, enabled:true}));
+  EXTRA_WARDS.forEach((name,i) => {
+    wards.push({id:'w-'+slug(name), name, order: DEFAULT_WARDS.length+i, siteId, enabled:false});
+  });
+  const codes = DEFAULT_CODES.map(code => ({id:'c-'+code, code, name:'', unit:'EA', par:0, stock:0}));
+  return {
+    version: 1,
+    appVersion: VERSION,
+    sites: [{id:siteId, name:'Main'}],
+    wards,
+    codes,
+    settings: {
+      partnerName: '',
+      waNumber: '',
+      orderWeekdays: [2,4],
+      orderHour: 11
+    },
+    rounds: {},
+    orders: [],
+    trolley: {}
+  };
+}
+
+function load(){
+  try{
+    const raw = localStorage.getItem(STORE);
+    if (!raw){ S = defaultState(); save(); return; }
+    S = JSON.parse(raw);
+    migrate(S);
+  }catch(e){
+    S = defaultState();
+  }
+}
+function migrate(s){
+  if (!s.sites || !s.sites.length) s.sites = [{id:'s-main', name:'Main'}];
+  if (!s.wards) s.wards = [];
+  if (!s.codes) s.codes = [];
+  if (!s.rounds) s.rounds = {};
+  if (!s.orders) s.orders = [];
+  if (!s.trolley) s.trolley = {};
+  if (!s.settings) s.settings = {};
+  const st = s.settings;
+  if (st.partnerName == null) st.partnerName = '';
+  if (st.waNumber == null) st.waNumber = '';
+  if (!st.orderWeekdays) st.orderWeekdays = [2,4];
+  if (st.orderHour == null) st.orderHour = 11;
+  s.wards.forEach((w,i) => {
+    if (w.order == null) w.order = i;
+    if (!w.siteId) w.siteId = s.sites[0].id;
+    if (w.enabled == null) w.enabled = true;
+  });
+  s.codes.forEach(c => {
+    if (!c.unit) c.unit = 'EA';
+    if (c.par == null) c.par = 0;
+    if (c.stock == null) c.stock = 0;
+    if (c.name == null) c.name = '';
+  });
+}
+function save(){
+  try{ localStorage.setItem(STORE, JSON.stringify(S)); }
+  catch(e){ toast('Could not save — storage may be full'); }
+}
+
+function enabledWards(){
+  return S.wards.filter(w => w.enabled).sort((a,b)=>a.order-b.order);
+}
+function wardById(id){ return S.wards.find(w => w.id===id); }
+function codeById(id){ return S.codes.find(c => c.id===id); }
+function siteById(id){ return S.sites.find(s => s.id===id); }
+function codeOrder(){ return S.codes.map(c => c.id); }
+
+function todayRound(){
+  const day = zonedNow().iso;
+  if (!S.rounds[day]){
+    S.rounds[day] = {date:day, wards:{}};
+  }
+  return S.rounds[day];
+}
+function wardEntry(round, wardId){
+  if (!round.wards[wardId]) round.wards[wardId] = {status:'pending', lines:[]};
+  return round.wards[wardId];
+}
+
+function qtyNum(q){
+  if (q==='' || q==null) return null;
+  const n = Number(q);
+  return Number.isFinite(n) ? n : null;
+}
+function usageQty(q){
+  const n = qtyNum(q);
+  return n==null ? 1 : n;
+}
+
+/* Live popularity from every saved and in-progress round line. */
+function popularity(){
+  const overall = {};
+  const byWard = {};
+  const bySite = {};
+  function bump(bag, id, qty, day){
+    if (!bag[id]) bag[id] = {qty:0, hits:0, last:''};
+    bag[id].qty += qty;
+    bag[id].hits += 1;
+    if (day > bag[id].last) bag[id].last = day;
+  }
+  Object.values(S.rounds).forEach(round => {
+    const day = round.date;
+    Object.entries(round.wards||{}).forEach(([wid, entry]) => {
+      const ward = wardById(wid);
+      const siteId = ward ? ward.siteId : 's-main';
+      if (!byWard[wid]) byWard[wid] = {};
+      if (!bySite[siteId]) bySite[siteId] = {};
+      (entry.lines||[]).forEach(line => {
+        const q = usageQty(line.qty);
+        bump(overall, line.codeId, q, day);
+        bump(byWard[wid], line.codeId, q, day);
+        bump(bySite[siteId], line.codeId, q, day);
+      });
+    });
+  });
+  return {overall, byWard, bySite};
+}
+function rankedIds(bag, fallback){
+  const ids = Object.keys(bag||{});
+  ids.sort((a,b) => {
+    const A = bag[a]||{}, B = bag[b]||{};
+    return (B.qty||0)-(A.qty||0) || (B.hits||0)-(A.hits||0) || String(B.last||'').localeCompare(String(A.last||'')) || a.localeCompare(b);
+  });
+  (fallback||[]).forEach(id => { if (!ids.includes(id)) ids.push(id); });
+  return ids;
+}
+function codesForWard(wardId, pop){
+  const wardRank = rankedIds(pop.byWard[wardId]||{}, rankedIds(pop.overall, codeOrder()));
+  return wardRank.map(id => codeById(id)).filter(Boolean);
+}
+
+function lastDeliveryDate(today){
+  let last = null;
+  S.orders.forEach(o => {
+    if (!o.sentAt) return;
+    const d = o.expectedDelivery;
+    if (d && d <= today && (!last || d > last)) last = d;
+  });
+  return last;
+}
+function usageSince(sinceIso, siteId){
+  const bag = {};
+  Object.values(S.rounds).forEach(round => {
+    if (sinceIso && round.date <= sinceIso) return;
+    Object.entries(round.wards||{}).forEach(([wid, entry]) => {
+      const ward = wardById(wid);
+      if (siteId && ward && ward.siteId !== siteId) return;
+      (entry.lines||[]).forEach(line => {
+        bag[line.codeId] = (bag[line.codeId]||0) + usageQty(line.qty);
+      });
+    });
+  });
+  return bag;
+}
+function defaultDelivery(iso, urgent){
+  if (urgent) return addDays(iso, 1);
+  const dow = dowOf(iso);
+  if (dow===2 || dow===4) return addDays(iso, 1);
+  for (let i=1;i<=8;i++){
+    const next = addDays(iso, i);
+    const d = dowOf(next);
+    if (d===3 || d===5) return next;
+  }
+  return addDays(iso, 1);
+}
+function suggestOrder(siteId){
+  const today = zonedNow().iso;
+  const last = lastDeliveryDate(today);
+  const used = usageSince(last, siteId);
+  const pop = popularity();
+  const sitePop = pop.bySite[siteId] || pop.overall;
+  const lines = [];
+  S.codes.forEach(c => {
+    const usage = used[c.id]||0;
+    const low = Math.max(0, (Number(c.par)||0) - (Number(c.stock)||0));
+    const qty = usage + low;
+    if (qty > 0) lines.push({codeId:c.id, qty, usage, low});
+  });
+  const order = rankedIds(sitePop, codeOrder());
+  const idx = Object.fromEntries(order.map((id,i)=>[id,i]));
+  lines.sort((a,b) => (idx[a.codeId]??999) - (idx[b.codeId]??999));
+  return {last, lines};
+}
+
+function isOrderDay(z){
+  return (S.settings.orderWeekdays||[2,4]).includes(z.dow);
+}
+function beforeCutoff(z){
+  return z.hour < (S.settings.orderHour||11);
+}
+function orderSentOn(iso){
+  return S.orders.some(o => o.sentAt && o.sentDate === iso);
+}
+
+function toast(msg){
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+}
+
+function parseRoute(){
+  const h = (location.hash||'#round').replace(/^#/, '');
+  const parts = h.split('/');
+  const page = parts[0] || 'round';
+  if (page==='round' && parts[1]) route = {page:'round-ward', wardId:decodeURIComponent(parts[1])};
+  else if (page==='history' || page==='setup') route = {page, wardId:null};
+  else route = {page, wardId:null};
+}
+
+function render(){
+  parseRoute();
+  const z = zonedNow();
+  clearTimeout(toastTimer);
+  document.getElementById('toast').classList.remove('show');
+  renderBar(z);
+  renderBanners(z);
+  const view = document.getElementById('view');
+  const page = route.page;
+  if (page==='round') view.innerHTML = renderRoundList(z);
+  else if (page==='round-ward') view.innerHTML = renderRoundWard(z);
+  else if (page==='trolleys') view.innerHTML = renderTrolleys(z);
+  else if (page==='stock') view.innerHTML = renderStock();
+  else if (page==='order') view.innerHTML = renderOrder(z);
+  else if (page==='history' || page==='more') view.innerHTML = renderMore(z);
+  else if (page==='setup') view.innerHTML = renderSetup();
+  else view.innerHTML = renderRoundList(z);
+  const navPage = (page==='round-ward') ? 'round' : (page==='history'||page==='setup') ? 'more' : page;
+  document.querySelectorAll('nav.tabbar a').forEach(a => a.classList.toggle('on', a.dataset.nav===navPage));
+  requestAnimationFrame(() => window.scrollTo(0, 0));
+  maybeNotify(z);
+}
+
+function renderBar(z){
+  const bar = document.getElementById('appbar');
+  const back = route.page==='round-ward' || route.page==='setup' || route.page==='history';
+  let title = 'Ward Run';
+  let sub = shortDate(z.iso);
+  if (route.page==='round-ward'){
+    const w = wardById(route.wardId);
+    title = w ? w.name : 'Ward';
+    sub = shortDate(z.iso);
+  } else if (route.page==='trolleys') title = 'Trolleys';
+  else if (route.page==='stock') title = 'Storage stock';
+  else if (route.page==='order') title = 'Order';
+  else if (route.page==='setup') title = 'Setup';
+  else if (route.page==='history') title = 'History';
+  else if (route.page==='more') title = 'More';
+  let extra = '';
+  if (route.page==='round' || route.page==='round-ward'){
+    const r = todayRound();
+    const wards = enabledWards();
+    const done = wards.filter(w => {
+      const e = r.wards[w.id];
+      return e && (e.status==='checked' || e.status==='nothing');
+    }).length;
+    const pct = wards.length ? Math.round(done/wards.length*100) : 0;
+    extra = `<div class="progress" style="width:72px" title="${done} of ${wards.length}"><span style="width:${pct}%"></span></div>`;
+    if (route.page==='round') sub = shortDate(z.iso) + ' · ' + done + ' of ' + wards.length;
+  }
+  bar.innerHTML =
+    (back ? `<button class="back" data-act="back" aria-label="Back">‹</button>` : '') +
+    `<div class="grow"><h1>${esc(title)}</h1><p class="sub">${esc(sub)}</p></div>${extra}`;
+}
+
+function renderBanners(z){
+  const el = document.getElementById('banners');
+  if (!isOrderDay(z) || orderSentOn(z.iso)){ el.innerHTML=''; return; }
+  const hour = S.settings.orderHour||11;
+  const name = S.settings.partnerName || 'your partner';
+  if (beforeCutoff(z)){
+    el.innerHTML = `<div class="banner" role="status"><b>Order day</b>Send ${esc(name)} the restock list before ${hour}:00.</div>`;
+  } else {
+    el.innerHTML = `<div class="banner late" role="status"><b>Order may be late</b>Today’s list has not been marked as sent yet.</div>`;
+  }
+}
+
+function renderRoundList(z){
+  const r = todayRound();
+  const pop = popularity();
+  const wards = enabledWards();
+  if (!wards.length) return `<div class="card empty">No wards on the round yet. Add or turn some on in Setup.</div>`;
+  return wards.map(w => {
+    const e = r.wards[w.id];
+    const status = e ? e.status : 'pending';
+    const n = e ? (e.lines||[]).length : 0;
+    let chip = `<span class="chip idle">To do</span>`;
+    let meta = 'Not started';
+    if (status==='nothing'){ chip = `<span class="chip">Nothing needed</span>`; meta='Checked, nothing needed'; }
+    else if (status==='checked'){ chip = `<span class="chip ok">Checked</span>`; meta = n + (n===1?' code':' codes'); }
+    else if (n){ chip = `<span class="chip warn">In progress</span>`; meta = n + (n===1?' code':' codes'); }
+    const top = (pop.byWard[w.id] && Object.keys(pop.byWard[w.id]).length)
+      ? codesForWard(w.id, pop).slice(0,2).map(c=>c.code).join(', ')
+      : '';
+    if (top && status==='pending' && !n) meta = 'Often: ' + top;
+    return `<button class="ward" data-act="open-ward" data-id="${esc(w.id)}">
+      <div class="grow"><div class="name">${esc(w.name)}</div><div class="meta">${esc(meta)}</div></div>
+      ${chip}
+    </button>`;
+  }).join('') + brandFoot();
+}
+
+function renderRoundWard(z){
+  const w = wardById(route.wardId);
+  if (!w) return `<div class="card empty">That ward was not found.</div>`;
+  const r = todayRound();
+  const e = wardEntry(r, w.id);
+  const pop = popularity();
+  const codes = codesForWard(w.id, pop);
+  const used = new Set((e.lines||[]).map(l => l.codeId));
+  const topIds = new Set(Object.keys(pop.byWard[w.id]||{}));
+  const lineHtml = (e.lines||[]).map(l => {
+    const c = codeById(l.codeId);
+    if (!c) return '';
+    const q = l.qty==null||l.qty==='' ? '—' : String(l.qty);
+    return `<div class="line">
+      <div class="grow"><div class="code">${esc(c.code)}</div><div class="muted">${esc(c.name||c.unit)}</div></div>
+      <div class="stepper">
+        <button type="button" data-act="qty" data-dir="-1" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}" aria-label="Decrease">−</button>
+        <div class="q">${esc(q)}</div>
+        <button type="button" data-act="qty" data-dir="1" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}" aria-label="Increase">+</button>
+      </div>
+      <button class="btn ghost" data-act="remove-line" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}" aria-label="Remove">✕</button>
+    </div>`;
+  }).join('') || `<div class="muted">Tap a code to add it. Quantity is optional.</div>`;
+  const codeBtns = codes.map((c,i) => {
+    const hot = i<3 && topIds.has(c.id);
+    return `<button type="button" class="codebtn${used.has(c.id)?' on':''}${hot?' hot':''}" data-act="add-code" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}">
+      ${esc(c.code)}${c.name?`<span class="cn">${esc(c.name)}</span>`:''}
+    </button>`;
+  }).join('');
+  const st = e.status;
+  return `
+    <div class="btnrow" style="margin-top:0">
+      <button class="btn ${st==='nothing'?'warn':''}" data-act="mark" data-wid="${esc(w.id)}" data-status="nothing">Nothing needed</button>
+      <button class="btn ${st==='checked'?'ok':''} primary" data-act="mark" data-wid="${esc(w.id)}" data-status="checked">Mark checked</button>
+    </div>
+    <div class="card" style="margin-top:12px"><h2>This ward</h2>${lineHtml}</div>
+    <h3>Codes — most used first</h3>
+    <div class="codes">${codeBtns}</div>
+    <div class="btnrow">
+      <button class="btn block" data-act="other-code" data-wid="${esc(w.id)}">Other code…</button>
+    </div>
+    ${st!=='pending' ? `<div class="btnrow"><button class="btn ghost block" data-act="mark" data-wid="${esc(w.id)}" data-status="pending">Clear checked state</button></div>`:''}
+  `;
+}
+
+function trolleyItems(z){
+  const r = S.rounds[z.iso];
+  if (!r) return [];
+  const groups = [];
+  enabledWards().forEach(w => {
+    const e = r.wards[w.id];
+    if (!e || e.status==='nothing') return;
+    const lines = (e.lines||[]).filter(l => codeById(l.codeId));
+    if (!lines.length) return;
+    groups.push({ward:w, lines});
+  });
+  return groups;
+}
+function tickKey(day, wid, cid){ return day+'|'+wid+'|'+cid; }
+
+function renderTrolleys(z){
+  const groups = trolleyItems(z);
+  if (!groups.length) return `<div class="card empty">No pick list yet. Add codes on today’s round first.</div>` + brandFoot();
+  const ticks = S.trolley[z.iso] || {};
+  return groups.map(g => {
+    const total = g.lines.length;
+    const done = g.lines.filter(l => ticks[tickKey(z.iso,g.ward.id,l.codeId)]).length;
+    const rows = g.lines.map(l => {
+      const c = codeById(l.codeId);
+      const key = tickKey(z.iso,g.ward.id,l.codeId);
+      const on = !!ticks[key];
+      const q = l.qty==null||l.qty==='' ? '' : (' × '+l.qty+' '+(c.unit||'EA'));
+      return `<button type="button" class="tickrow ${on?'done':'open'}" data-act="tick" data-wid="${esc(g.ward.id)}" data-cid="${esc(c.id)}">
+        <span class="tick" aria-hidden="true">${on?'✓':''}</span>
+        <span class="grow"><span class="code">${esc(c.code)}</span> ${esc(c.name||'')}<div class="muted">${esc(q.trim()||c.unit||'EA')}</div></span>
+      </button>`;
+    }).join('');
+    return `<section class="trolley">
+      <h2>${esc(g.ward.name)} <span class="chip ${done===total?'ok':'warn'}">${done}/${total}</span></h2>
+      ${rows}
+    </section>`;
+  }).join('') + brandFoot();
+}
+
+function renderStock(){
+  const qid = 'stock-q';
+  const rows = S.codes.map(c => {
+    const low = (Number(c.par)||0) > 0 && (Number(c.stock)||0) < (Number(c.par)||0);
+    return `<div class="stockrow" data-name="${esc((c.code+' '+c.name).toLowerCase())}">
+      <div class="grow"><div class="code">${esc(c.code)}</div>
+        <div class="muted">${esc(c.name||c.unit||'EA')} · par ${esc(c.par||0)}${low?' <span class="low">LOW</span>':''}</div></div>
+      <div class="stepper">
+        <button type="button" data-act="stock" data-dir="-1" data-cid="${esc(c.id)}" aria-label="Decrease stock">−</button>
+        <div class="q">${esc(c.stock||0)}</div>
+        <button type="button" data-act="stock" data-dir="1" data-cid="${esc(c.id)}" aria-label="Increase stock">+</button>
+      </div>
+    </div>`;
+  }).join('');
+  return `<input class="search" id="${qid}" data-act="filter-stock" placeholder="Search codes" type="search" enterkeyhint="search">
+    <div class="card">${rows || '<div class="muted">No codes yet.</div>'}</div>
+    <p class="muted">Set par levels in Setup. A low flag appears when the count is below par.</p>` + brandFoot();
+}
+
+function ensureDraft(z){
+  if (draftOrder && draftOrder.date===z.iso) return draftOrder;
+  const siteId = (S.sites[0]&&S.sites[0].id) || 's-main';
+  const sug = suggestOrder(siteId);
+  draftOrder = {
+    date: z.iso,
+    siteId,
+    urgent: !(isOrderDay(z)),
+    expectedDelivery: defaultDelivery(z.iso, !(isOrderDay(z))),
+    lines: sug.lines.map(l => ({codeId:l.codeId, qty:l.qty, usage:l.usage, low:l.low}))
+  };
+  return draftOrder;
+}
+
+function renderOrder(z){
+  const d = ensureDraft(z);
+  const sugMeta = suggestOrder(d.siteId);
+  const sites = S.sites;
+  const siteSel = sites.length>1 ? `<div class="field"><label>Site</label>
+    <select data-act="order-site">${sites.map(s=>`<option value="${esc(s.id)}" ${s.id===d.siteId?'selected':''}>${esc(s.name)}</option>`).join('')}</select>
+  </div>` : '';
+  const lines = d.lines.map(l => {
+    const c = codeById(l.codeId);
+    if (!c) return '';
+    const hint = [];
+    if (l.usage) hint.push('used '+l.usage+' since last delivery');
+    if (l.low) hint.push('low by '+l.low);
+    return `<div class="line">
+      <div class="grow"><div class="code">${esc(c.code)}</div><div class="muted">${esc(c.name||c.unit)}${hint.length?' · '+esc(hint.join(', ')):''}</div></div>
+      <div class="stepper">
+        <button type="button" data-act="order-qty" data-dir="-1" data-cid="${esc(c.id)}">−</button>
+        <div class="q">${esc(l.qty)}</div>
+        <button type="button" data-act="order-qty" data-dir="1" data-cid="${esc(c.id)}">+</button>
+      </div>
+      <button class="btn ghost" data-act="order-remove" data-cid="${esc(c.id)}" aria-label="Remove">✕</button>
+    </div>`;
+  }).join('') || `<div class="muted">No suggested lines. Add a code, or log today’s usage first.</div>`;
+  const since = sugMeta.last ? 'Usage counted since last delivery ('+shortDate(sugMeta.last)+').' : 'No delivery logged yet — suggestions use all recorded usage plus low stock.';
+  const sent = orderSentOn(z.iso);
+  return `
+    ${siteSel}
+    <div class="card">
+      <label class="row" style="gap:8px"><input type="checkbox" data-act="urgent" ${d.urgent?'checked':''}> Urgent order</label>
+      <div class="field"><label>Expected delivery</label>
+        <input type="date" data-act="delivery" value="${esc(d.expectedDelivery)}">
+        <p class="muted">${esc(prettyDate(d.expectedDelivery))} (Australia/Sydney)</p>
+      </div>
+      <p class="muted">${esc(since)} Lines are sorted by this site’s most-used codes.</p>
+    </div>
+    <div class="card"><h2>To order</h2>${lines}</div>
+    <div class="btnrow">
+      <button class="btn" data-act="order-add">Add code…</button>
+      <button class="btn" data-act="order-refresh">Recalculate</button>
+    </div>
+    <div class="btnrow">
+      <button class="btn" data-act="order-copy">Copy message</button>
+      <button class="btn primary" data-act="order-share">Share to WhatsApp</button>
+    </div>
+    <div class="btnrow">
+      <button class="btn ok block" data-act="order-send" ${sent?'disabled':''}>${sent?'Already marked sent today':'Mark as sent'}</button>
+    </div>
+    ${renderPastOrders()}
+  `;
+}
+function renderPastOrders(){
+  if (!S.orders.length) return '';
+  const rows = [...S.orders].reverse().slice(0,8).map(o => {
+    const n = (o.lines||[]).reduce((s,l)=>s+(Number(l.qty)||0),0);
+    return `<div class="line"><div class="grow"><div>${esc(prettyDate(o.sentDate||o.date))}${o.urgent?' · urgent':''}</div>
+      <div class="muted">${(o.lines||[]).length} lines · ${n} EA · delivery ${esc(shortDate(o.expectedDelivery))}</div></div></div>`;
+  }).join('');
+  return `<h3>Recent orders</h3><div class="card">${rows}</div>`;
+}
+
+function orderMessage(d){
+  const name = (S.settings.partnerName||'').trim();
+  const title = d.urgent ? 'URGENT stock order' : 'Stock order';
+  const site = siteById(d.siteId);
+  const lines = d.lines.map(l => {
+    const c = codeById(l.codeId);
+    if (!c) return '';
+    const nm = c.name ? ' '+c.name : '';
+    return c.code + nm + ' x ' + l.qty + ' ' + (c.unit||'EA');
+  }).filter(Boolean);
+  const parts = [
+    title,
+    prettyDate(d.date),
+    'Delivery: ' + prettyDate(d.expectedDelivery)
+  ];
+  if (site && site.name && site.name !== 'Main' && S.sites.length>1) parts.push('Site: ' + site.name);
+  parts.push('');
+  parts.push(lines.join('\n') || '(no lines)');
+  parts.push('');
+  parts.push(lines.length + (lines.length===1?' line':' lines'));
+  if (name) parts.push('For ' + name);
+  return parts.join('\n');
+}
+
+function renderMore(z){
+  const pop = popularity();
+  return `
+    <div class="btnrow" style="margin-top:0">
+      <a class="btn primary" href="#history" style="text-decoration:none;display:inline-flex;align-items:center">History & rankings</a>
+      <a class="btn" href="#setup" style="text-decoration:none;display:inline-flex;align-items:center">Setup</a>
+    </div>
+    ${route.page==='more' ? renderHistory(z, pop) : ''}
+    ${route.page==='history' ? renderHistory(z, pop) : ''}
+  `;
+}
+
+function renderHistory(z, pop){
+  const maxOverall = Math.max(1, ...Object.values(pop.overall).map(x=>x.qty));
+  const overall = rankedIds(pop.overall, []).map(id => codeById(id)).filter(Boolean);
+  function rankBlock(title, bag){
+    const ids = rankedIds(bag, []);
+    if (!ids.length) return `<p class="muted">No usage yet.</p>`;
+    const max = Math.max(1, ...ids.map(id => (bag[id]||{}).qty||0));
+    return ids.slice(0,15).map((id,i) => {
+      const c = codeById(id); if (!c) return '';
+      const st = bag[id];
+      const pct = Math.round((st.qty||0)/max*100);
+      return `<div class="rank"><span class="muted" style="width:1.2em">${i+1}</span>
+        <div class="grow"><div class="code">${esc(c.code)} ${esc(c.name||'')}</div>
+          <div class="bar"><span style="width:${pct}%"></span></div></div>
+        <span class="muted">${st.qty}</span></div>`;
+    }).join('');
+  }
+  const siteBlocks = S.sites.map(s => {
+    return `<div class="card"><h2>${esc(s.name)} — most used</h2>${rankBlock(s.name, pop.bySite[s.id]||{})}</div>`;
+  }).join('');
+  const wardBlocks = enabledWards().map(w => {
+    const bag = pop.byWard[w.id]||{};
+    if (!Object.keys(bag).length) return '';
+    return `<div class="card"><h2>${esc(w.name)}</h2>${rankBlock(w.name, bag)}</div>`;
+  }).join('') || `<div class="card muted">No per-ward usage yet.</div>`;
+
+  const days = Object.keys(S.rounds).sort().reverse().slice(0,14);
+  const dayRows = days.map(day => {
+    const r = S.rounds[day];
+    let n=0, wards=0;
+    Object.values(r.wards||{}).forEach(e => {
+      if ((e.lines||[]).length || e.status==='nothing' || e.status==='checked') wards++;
+      n += (e.lines||[]).reduce((s,l)=>s+usageQty(l.qty),0);
+    });
+    return `<div class="line"><div class="grow"><div>${esc(prettyDate(day))}</div><div class="muted">${wards} wards · ${n} units logged</div></div></div>`;
+  }).join('') || `<p class="muted">No rounds recorded yet.</p>`;
+
+  return `
+    <h3>Overall popularity</h3>
+    <div class="card">${overall.length?rankBlock('Overall', pop.overall):'<p class="muted">Rankings fill in as you tick codes on the round and trolleys.</p>'}</div>
+    <h3>Per site</h3>
+    ${siteBlocks}
+    <h3>Per ward</h3>
+    ${wardBlocks}
+    <h3>Recent rounds</h3>
+    <div class="card">${dayRows}</div>
+    ${brandFoot()}
+  `;
+}
+
+function renderSetup(){
+  const wards = [...S.wards].sort((a,b)=>a.order-b.order);
+  const wardRows = wards.map((w,i) => {
+    return `<div class="setup-item">
+      <input type="checkbox" data-act="ward-on" data-id="${esc(w.id)}" ${w.enabled?'checked':''} aria-label="On the round">
+      <div class="grow"><input class="search" style="margin:0" data-act="ward-name" data-id="${esc(w.id)}" value="${esc(w.name)}"></div>
+      ${S.sites.length>1?`<select data-act="ward-site" data-id="${esc(w.id)}">${S.sites.map(s=>`<option value="${esc(s.id)}" ${s.id===w.siteId?'selected':''}>${esc(s.name)}</option>`).join('')}</select>`:''}
+      <button class="btn ghost" data-act="ward-move" data-id="${esc(w.id)}" data-dir="-1" ${i===0?'disabled':''} aria-label="Move up">↑</button>
+      <button class="btn ghost" data-act="ward-move" data-id="${esc(w.id)}" data-dir="1" ${i===wards.length-1?'disabled':''} aria-label="Move down">↓</button>
+    </div>`;
+  }).join('');
+  const codeRows = S.codes.map(c => {
+    return `<div class="setup-item" style="flex-wrap:wrap">
+      <div class="grow" style="min-width:90px"><label class="muted">Code</label>
+        <input class="search" style="margin:0" data-act="code-code" data-id="${esc(c.id)}" value="${esc(c.code)}"></div>
+      <div class="grow" style="min-width:120px"><label class="muted">Name</label>
+        <input class="search" style="margin:0" data-act="code-name" data-id="${esc(c.id)}" value="${esc(c.name)}" placeholder="Optional"></div>
+      <div style="width:76px"><label class="muted">Par</label>
+        <input class="search" style="margin:0" type="number" min="0" inputmode="numeric" data-act="code-par" data-id="${esc(c.id)}" value="${esc(c.par||0)}"></div>
+    </div>`;
+  }).join('');
+  const siteRows = S.sites.map(s => `<div class="setup-item">
+    <input class="search grow" style="margin:0" data-act="site-name" data-id="${esc(s.id)}" value="${esc(s.name)}">
+    ${S.sites.length>1?`<button class="btn ghost danger" data-act="site-del" data-id="${esc(s.id)}">Remove</button>`:''}
+  </div>`).join('');
+  return `
+    <div class="card">
+      <h2>WhatsApp</h2>
+      <div class="field"><label>Recipient name</label>
+        <input data-act="set-partner" value="${esc(S.settings.partnerName||'')}" placeholder="Recipient name"></div>
+      <div class="field"><label>Mobile number (optional)</label>
+        <input data-act="set-wa" value="${esc(S.settings.waNumber||'')}" inputmode="tel" placeholder="Include country code, numbers only">
+        <p class="muted">Leave blank to pick the chat yourself when you share. No number is stored in the app unless you type one here.</p>
+      </div>
+      <div class="btnrow">
+        <button class="btn" data-act="notify-ask">Enable order reminders</button>
+      </div>
+    </div>
+    <div class="card"><h2>Sites</h2>
+      <p class="muted">Use more than one site if you cover more than one workplace. Rankings and order suggestions are tracked per site.</p>
+      ${siteRows}
+      <div class="btnrow"><button class="btn" data-act="site-add">Add site</button></div>
+    </div>
+    <div class="card"><h2>Wards</h2>
+      <p class="muted">Tick to include on the daily round. Use the arrows to set the walking order.</p>
+      ${wardRows}
+      <div class="btnrow"><button class="btn" data-act="ward-add">Add ward</button></div>
+    </div>
+    <div class="card"><h2>Codes</h2>
+      <p class="muted">Names are optional — add them when you like. Units are EA.</p>
+      ${codeRows}
+      <div class="btnrow"><button class="btn" data-act="code-add">Add code</button></div>
+    </div>
+    <div class="card"><h2>Backup</h2>
+      <p class="muted">Everything lives on this phone. Export a JSON copy now and then.</p>
+      <div class="btnrow">
+        <button class="btn primary" data-act="export">Export backup</button>
+        <button class="btn" data-act="import">Import backup…</button>
+        <input type="file" id="import-file" accept="application/json,.json" class="hidden">
+      </div>
+    </div>
+    <p class="brandfoot"><img src="icons/autoprod-logo-64.png" alt="">Ward Run v${esc(VERSION)} · by Autoprod<br>Data stays on this phone. No patient details.</p>
+  `;
+}
+
+function brandFoot(){
+  return `<p class="brandfoot"><img src="icons/autoprod-logo-64.png" alt="">by Autoprod · v${esc(VERSION)}</p>`;
+}
+
+/* ---------------- actions ---------------- */
+function openWard(id){
+  location.hash = 'round/' + encodeURIComponent(id);
+}
+function addCodeToWard(wid, cid){
+  const r = todayRound();
+  const e = wardEntry(r, wid);
+  const line = e.lines.find(l => l.codeId===cid);
+  if (line){
+    const n = qtyNum(line.qty);
+    line.qty = (n==null ? 1 : n+1);
+  } else {
+    e.lines.push({codeId:cid, qty:1});
+    if (e.status==='nothing') e.status='pending';
+  }
+  save(); render();
+}
+function changeQty(wid, cid, dir){
+  const e = wardEntry(todayRound(), wid);
+  const line = e.lines.find(l => l.codeId===cid);
+  if (!line) return;
+  const n = qtyNum(line.qty);
+  if (dir<0){
+    if (n==null || n<=1) line.qty = '';
+    else line.qty = n-1;
+  } else {
+    line.qty = (n==null ? 1 : n+1);
+  }
+  save(); render();
+}
+function removeLine(wid, cid){
+  const e = wardEntry(todayRound(), wid);
+  e.lines = e.lines.filter(l => l.codeId!==cid);
+  save(); render();
+}
+function markWard(wid, status){
+  const e = wardEntry(todayRound(), wid);
+  e.status = status;
+  if (status==='nothing') e.lines = [];
+  save();
+  if (status==='checked' || status==='nothing'){
+    const wards = enabledWards();
+    const i = wards.findIndex(w => w.id===wid);
+    const next = wards.slice(i+1).find(w => {
+      const x = todayRound().wards[w.id];
+      return !x || x.status==='pending';
+    });
+    if (next){ openWard(next.id); return; }
+    location.hash = 'round';
+    return;
+  }
+  render();
+}
+function tickItem(wid, cid){
+  const day = zonedNow().iso;
+  if (!S.trolley[day]) S.trolley[day] = {};
+  const key = tickKey(day, wid, cid);
+  S.trolley[day][key] = !S.trolley[day][key];
+  save(); render(); // live refresh of rankings display
+}
+function changeStock(cid, dir){
+  const c = codeById(cid); if (!c) return;
+  const n = Number(c.stock)||0;
+  c.stock = Math.max(0, n+dir);
+  save(); render();
+}
+
+function rebuildDraftKeepEdits(z, siteId){
+  const prev = {};
+  if (draftOrder) draftOrder.lines.forEach(l => { prev[l.codeId]=l.qty; });
+  const sug = suggestOrder(siteId);
+  draftOrder = {
+    date: z.iso,
+    siteId,
+    urgent: draftOrder ? draftOrder.urgent : !isOrderDay(z),
+    expectedDelivery: draftOrder && draftOrder.siteId===siteId ? draftOrder.expectedDelivery : defaultDelivery(z.iso, draftOrder?draftOrder.urgent:!isOrderDay(z)),
+    lines: sug.lines.map(l => ({codeId:l.codeId, qty: prev[l.codeId]!=null?prev[l.codeId]:l.qty, usage:l.usage, low:l.low}))
+  };
+}
+
+function copyText(text){
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    return navigator.clipboard.writeText(text).then(()=>true).catch(()=>fallbackCopy(text));
+  }
+  return Promise.resolve(fallbackCopy(text));
+}
+function fallbackCopy(text){
+  const ta = document.createElement('textarea');
+  ta.value = text; document.body.appendChild(ta); ta.select();
+  let ok=false;
+  try{ ok = document.execCommand('copy'); }catch(e){}
+  ta.remove();
+  return ok;
+}
+function waLink(text){
+  const digits = String(S.settings.waNumber||'').replace(/\D+/g,'');
+  const q = 'text=' + encodeURIComponent(text);
+  return digits ? ('https://wa.me/' + digits + '?' + q) : ('https://wa.me/?' + q);
+}
+
+function exportBackup(){
+  const payload = {
+    format: 'ward-run-backup',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    data: S
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'ward-run-backup-' + zonedNow().iso + '.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+  toast('Backup downloaded');
+}
+function importBackup(file){
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const obj = JSON.parse(String(reader.result));
+      if (!obj || obj.format!=='ward-run-backup' || !obj.data) throw new Error('Not a Ward Run backup');
+      if (!confirm('Replace all data on this phone with the backup? This cannot be undone.')) return;
+      S = obj.data;
+      migrate(S);
+      draftOrder = null;
+      save(); render();
+      toast('Backup imported');
+    }catch(e){
+      toast('Could not import that file');
+    }
+  };
+  reader.readAsText(file);
+}
+
+function promptDlg(title, fields, onOk){
+  const dlg = document.getElementById('dlg');
+  const body = fields.map((f,i) => `<div class="field"><label>${esc(f.label)}</label>
+    <input id="dlg-f${i}" value="${esc(f.value||'')}" placeholder="${esc(f.placeholder||'')}" ${f.attr||''}></div>`).join('');
+  dlg.innerHTML = `<h2 id="dlgTitle">${esc(title)}</h2>${body}
+    <div class="btnrow"><button class="btn" data-dlg="cancel">Cancel</button>
+    <button class="btn primary" data-dlg="ok">Save</button></div>`;
+  const cancel = () => { dlg.close(); dlg.innerHTML=''; };
+  dlg.querySelector('[data-dlg="cancel"]').onclick = cancel;
+  dlg.querySelector('[data-dlg="ok"]').onclick = () => {
+    const values = fields.map((_,i) => dlg.querySelector('#dlg-f'+i).value);
+    cancel();
+    onOk(values);
+  };
+  dlg.showModal();
+  const first = dlg.querySelector('input');
+  if (first) first.focus();
+}
+
+function maybeNotify(z){
+  if (!('Notification' in window) || Notification.permission!=='granted') return;
+  if (!isOrderDay(z) || !beforeCutoff(z) || orderSentOn(z.iso)) return;
+  const key = 'ward-run-notified-'+z.iso;
+  if (sessionStorage.getItem(key)) return;
+  try{
+    new Notification('Ward Run', {
+      body: 'Send today’s restock list before '+(S.settings.orderHour||11)+':00.',
+      icon: 'icons/icon-192.png',
+      tag: 'ward-run-order-day'
+    });
+    sessionStorage.setItem(key,'1');
+  }catch(e){}
+}
+
+document.addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]');
+  if (!b) return;
+  const act = b.dataset.act;
+  const z = zonedNow();
+
+  if (act==='back'){
+    if (route.page==='round-ward') location.hash='round';
+    else location.hash='more';
+    return;
+  }
+  if (act==='open-ward') openWard(b.dataset.id);
+  if (act==='add-code') addCodeToWard(b.dataset.wid, b.dataset.cid);
+  if (act==='qty') changeQty(b.dataset.wid, b.dataset.cid, Number(b.dataset.dir));
+  if (act==='remove-line') removeLine(b.dataset.wid, b.dataset.cid);
+  if (act==='mark') markWard(b.dataset.wid, b.dataset.status);
+  if (act==='tick') tickItem(b.dataset.wid, b.dataset.cid);
+  if (act==='stock') changeStock(b.dataset.cid, Number(b.dataset.dir));
+  if (act==='other-code'){
+    promptDlg('Add a code', [{label:'Code', value:'', placeholder:'e.g. 7113'}], ([code]) => {
+      code = String(code||'').trim();
+      if (!code) return;
+      let c = S.codes.find(x => x.code.toLowerCase()===code.toLowerCase());
+      if (!c){
+        c = {id:'c-'+slug(code)+'-'+uid(''), code, name:'', unit:'EA', par:0, stock:0};
+        S.codes.push(c);
+      }
+      addCodeToWard(b.dataset.wid, c.id);
+    });
+  }
+  if (act==='urgent'){
+    const d = ensureDraft(z);
+    d.urgent = b.checked;
+    d.expectedDelivery = defaultDelivery(z.iso, d.urgent);
+    render();
+  }
+  if (act==='order-qty'){
+    const d = ensureDraft(z);
+    const line = d.lines.find(l => l.codeId===b.dataset.cid);
+    if (!line) return;
+    line.qty = Math.max(0, (Number(line.qty)||0) + Number(b.dataset.dir));
+    if (line.qty===0) d.lines = d.lines.filter(l => l.codeId!==b.dataset.cid);
+    render();
+  }
+  if (act==='order-remove'){
+    const d = ensureDraft(z);
+    d.lines = d.lines.filter(l => l.codeId!==b.dataset.cid);
+    render();
+  }
+  if (act==='order-add'){
+    promptDlg('Add to order', [{label:'Code', placeholder:'e.g. 7113'},{label:'Quantity', value:'1', attr:'inputmode="numeric"'}], ([code, qty]) => {
+      code = String(code||'').trim();
+      const q = Math.max(0, Number(qty)||0);
+      if (!code || !q) return;
+      let c = S.codes.find(x => x.code.toLowerCase()===code.toLowerCase());
+      if (!c){ c = {id:'c-'+slug(code)+'-'+uid(''), code, name:'', unit:'EA', par:0, stock:0}; S.codes.push(c); save(); }
+      const d = ensureDraft(z);
+      const line = d.lines.find(l => l.codeId===c.id);
+      if (line) line.qty = q; else d.lines.push({codeId:c.id, qty:q, usage:0, low:0});
+      render();
+    });
+  }
+  if (act==='order-refresh'){
+    const d = ensureDraft(z);
+    rebuildDraftKeepEdits(z, d.siteId);
+    render();
+    toast('Suggestions recalculated');
+  }
+  if (act==='order-copy'){
+    const text = orderMessage(ensureDraft(z));
+    copyText(text).then(ok => toast(ok ? 'Message copied' : 'Copy failed — long-press to copy'));
+  }
+  if (act==='order-share'){
+    const text = orderMessage(ensureDraft(z));
+    const url = waLink(text);
+    if (navigator.share){
+      navigator.share({text}).catch(()=>{ window.location.href = url; });
+    } else {
+      window.location.href = url;
+    }
+  }
+  if (act==='order-send'){
+    const d = ensureDraft(z);
+    if (!d.lines.length){ toast('Add at least one line'); return; }
+    S.orders.push({
+      id: uid('o-'),
+      date: d.date,
+      sentAt: new Date().toISOString(),
+      sentDate: z.iso,
+      urgent: !!d.urgent,
+      expectedDelivery: d.expectedDelivery,
+      siteId: d.siteId,
+      lines: d.lines.map(l => ({codeId:l.codeId, qty:l.qty})),
+      message: orderMessage(d)
+    });
+    save();
+    render();
+    toast('Order logged · delivery ' + shortDate(d.expectedDelivery));
+  }
+  if (act==='export') exportBackup();
+  if (act==='import'){
+    const inp = document.getElementById('import-file');
+    if (inp) inp.click();
+  }
+  if (act==='ward-move'){
+    const list = [...S.wards].sort((a,b)=>a.order-b.order);
+    const i = list.findIndex(w => w.id===b.dataset.id);
+    const j = i + Number(b.dataset.dir);
+    if (i<0 || j<0 || j>=list.length) return;
+    const tmp = list[i]; list[i]=list[j]; list[j]=tmp;
+    list.forEach((w,k)=>w.order=k);
+    save(); render();
+  }
+  if (act==='ward-add'){
+    promptDlg('Add ward', [{label:'Abbreviation', placeholder:'e.g. 4n'}], ([name]) => {
+      name = String(name||'').trim(); if (!name) return;
+      const id = 'w-'+slug(name)+'-'+uid('');
+      const max = S.wards.reduce((m,w)=>Math.max(m,w.order),-1);
+      S.wards.push({id, name, order:max+1, siteId:(S.sites[0]||{}).id, enabled:true});
+      save(); render();
+    });
+  }
+  if (act==='code-add'){
+    promptDlg('Add code', [{label:'Code'},{label:'Name (optional)'}], ([code,name]) => {
+      code = String(code||'').trim(); if (!code) return;
+      if (S.codes.some(c => c.code.toLowerCase()===code.toLowerCase())){ toast('That code is already on the list'); return; }
+      S.codes.push({id:'c-'+slug(code)+'-'+uid(''), code, name:String(name||'').trim(), unit:'EA', par:0, stock:0});
+      save(); render();
+    });
+  }
+  if (act==='site-add'){
+    promptDlg('Add site', [{label:'Site name', placeholder:'A short label you choose'}], ([name]) => {
+      name = String(name||'').trim(); if (!name) return;
+      S.sites.push({id:'s-'+uid(''), name});
+      save(); render();
+    });
+  }
+  if (act==='site-del'){
+    if (S.sites.length<=1) return;
+    const fallback = S.sites.find(s => s.id!==b.dataset.id);
+    S.wards.forEach(w => { if (w.siteId===b.dataset.id) w.siteId = fallback.id; });
+    S.sites = S.sites.filter(s => s.id!==b.dataset.id);
+    save(); render();
+  }
+  if (act==='notify-ask'){
+    if (!('Notification' in window)){ toast('Notifications are not available in this browser'); return; }
+    Notification.requestPermission().then(p => {
+      toast(p==='granted' ? 'Reminders on for order days' : 'Permission not granted');
+      maybeNotify(zonedNow());
+    });
+  }
+});
+
+document.addEventListener('change', (ev) => {
+  const t = ev.target;
+  const act = t.dataset && t.dataset.act;
+  if (!act) return;
+  const z = zonedNow();
+  if (act==='delivery'){ ensureDraft(z).expectedDelivery = t.value; }
+  if (act==='order-site'){
+    const d = ensureDraft(z);
+    d.siteId = t.value;
+    rebuildDraftKeepEdits(z, t.value);
+    render();
+  }
+  if (act==='urgent'){ /* handled in click for checkbox? change also fires */ }
+  if (act==='ward-on'){
+    const w = wardById(t.dataset.id); if (!w) return;
+    w.enabled = t.checked; save(); render();
+  }
+  if (act==='ward-site'){
+    const w = wardById(t.dataset.id); if (!w) return;
+    w.siteId = t.value; save(); render();
+  }
+  if (act==='code-par'){
+    const c = codeById(t.dataset.id); if (!c) return;
+    c.par = Math.max(0, Number(t.value)||0); save();
+  }
+});
+
+document.addEventListener('input', (ev) => {
+  const t = ev.target;
+  const act = t.dataset && t.dataset.act;
+  if (!act) return;
+  if (act==='filter-stock'){
+    const q = t.value.trim().toLowerCase();
+    document.querySelectorAll('.stockrow').forEach(row => {
+      row.style.display = !q || (row.dataset.name||'').includes(q) ? '' : 'none';
+    });
+  }
+  if (act==='ward-name'){
+    const w = wardById(t.dataset.id); if (!w) return;
+    w.name = t.value; save();
+  }
+  if (act==='code-code'){
+    const c = codeById(t.dataset.id); if (!c) return;
+    c.code = t.value; save();
+  }
+  if (act==='code-name'){
+    const c = codeById(t.dataset.id); if (!c) return;
+    c.name = t.value; save();
+  }
+  if (act==='site-name'){
+    const s = siteById(t.dataset.id); if (!s) return;
+    s.name = t.value; save();
+  }
+  if (act==='set-partner'){ S.settings.partnerName = t.value; save(); }
+  if (act==='set-wa'){ S.settings.waNumber = t.value; save(); }
+  if (act==='code-par'){
+    const c = codeById(t.dataset.id); if (!c) return;
+    c.par = Math.max(0, Number(t.value)||0); save();
+  }
+});
+
+document.addEventListener('change', (ev) => {
+  if (ev.target && ev.target.id==='import-file' && ev.target.files && ev.target.files[0]){
+    importBackup(ev.target.files[0]);
+    ev.target.value = '';
+  }
+});
+
+window.addEventListener('hashchange', () => {
+  clearTimeout(toastTimer);
+  document.getElementById('toast').classList.remove('show');
+  render();
+});
+window.addEventListener('pageshow', render);
+
+load();
+if (!location.hash) location.hash = '#round';
+else render();
+
+if ('serviceWorker' in navigator && !/e2e=1/.test(location.search)){
+  navigator.serviceWorker.register('sw.js', {scope: './'}).catch(()=>{});
+}
+})();
+</script>
+</body>
+</html>

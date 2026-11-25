@@ -123,6 +123,17 @@ dialog::backdrop{background:rgba(18,32,42,.4)}
 .empty{padding:22px 8px;text-align:center;color:var(--muted)}
 .hidden{display:none !important}
 .site-tag{font-size:.7rem;color:var(--teal);font-weight:700}
+.sitetog{flex:1 0 100%;display:flex;gap:3px;margin-top:8px;background:rgba(0,0,0,.18);border-radius:11px;padding:3px}
+.sitetog button{flex:1;min-height:40px;border:0;background:transparent;color:#d1eeea;font-weight:750;border-radius:9px;cursor:pointer;font-size:.9rem}
+.sitetog button.on{background:#fff;color:var(--teal-d)}
+.unitpair{display:flex;align-items:center;gap:6px;flex:none}
+.unitbtn{min-width:44px;min-height:44px;border:1px solid var(--line);border-radius:11px;background:#fff;font-weight:800;font-size:.72rem;letter-spacing:.03em;text-transform:uppercase;color:var(--muted);cursor:pointer;padding:0 8px}
+.unitbtn.on{background:var(--teal-s);border-color:var(--teal);color:var(--teal-d)}
+.chip.kcl{background:var(--red-s);color:var(--red)}
+.codebtn .kcl{display:inline-block;margin-top:2px;padding:1px 6px;border-radius:99px;background:var(--red-s);color:var(--red);font-size:.62rem;font-weight:800;letter-spacing:.04em}
+.shelfnote{color:var(--amber);font-weight:700;font-size:.72rem}
+.line{flex-wrap:wrap}
+.appbar{flex-wrap:wrap}
 </style>
 </head>
 <body>
@@ -149,35 +160,120 @@ dialog::backdrop{background:rgba(18,32,42,.4)}
 (function(){
 "use strict";
 
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 const STORE = "ward-run-v1";
 const TZ = "Australia/Sydney";
 const DOW = {Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6};
-const DEFAULT_WARDS = ["Ot1","Rec1","C1SW","C1N","Rec2","R2a","R2b","CT","L1s","L1n","B1 Ed","8n","7n","7s","6n","6s","5n","3n"];
-const EXTRA_WARDS = ["R1","R2"];
-const DEFAULT_CODES = ["7113","7123","7163","7114","7606","7616","1324","1323","1322","1307","1313","1064","1253","2544","2584","2324","2323","2026","3025","6066","6024","0063","0087","0304","0953a","0956a"];
+const SITE_POW = "s-pow";
+const SITE_CH = "s-childrens";
+
+const POW_WARD_DEFS = [
+  {id:"w-pow-ot", name:"OT"},
+  {id:"w-pow-recovery", name:"Recovery"},
+  {id:"w-pow-storage", name:"Storage"},
+  {id:"w-pow-slush-shelf", name:"Slush shelf"}
+];
+const CH_WARD_DEFS = [
+  {id:"w-ot1", name:"Ot1"},
+  {id:"w-rec1", name:"Rec1"},
+  {id:"w-c1sw", name:"C1SW"},
+  {id:"w-c1n", name:"C1N"},
+  {id:"w-rec2", name:"Rec2"},
+  {id:"w-rec-2-station", name:"Rec 2 station"},
+  {id:"w-rec-2-med-rooms", name:"Rec 2 med rooms"},
+  {id:"w-r2a", name:"Rec 2 room a"},
+  {id:"w-r2b", name:"Rec 2 room b"},
+  {id:"w-ct", name:"CT"},
+  {id:"w-l1s", name:"L1s"},
+  {id:"w-l1n", name:"L1n"},
+  {id:"w-b1-ed", name:"B1 Ed"},
+  {id:"w-8n", name:"8n"},
+  {id:"w-7n", name:"7n"},
+  {id:"w-7s", name:"7s"},
+  {id:"w-6n", name:"6n"},
+  {id:"w-6s", name:"6s"},
+  {id:"w-5n", name:"5n"},
+  {id:"w-3n", name:"3n"}
+];
+const CH_EXTRA_WARDS = [
+  {id:"w-r1", name:"R1"},
+  {id:"w-r2", name:"R2"}
+];
+/* R2a / R2b were the v1.0 abbreviations for Rec 2 rooms a and b. */
+const CH_RENAME = {R2a:"Rec 2 room a", R2b:"Rec 2 room b"};
+
+const POW_CATALOG = [
+  {code:"AHF7163", name:"Ringers irrigation pour bottle 15x500mL"},
+  {code:"AHB7606", name:"Water for irrigation 6x2000mL"},
+  {code:"AHB1324", name:"0.9% NaCl IV 12x1000mL"},
+  {code:"AHB1307", name:"0.9% NaCl IV 48x100mL"},
+  {code:"AHB2324", name:"Hartmann's 12x1000mL"},
+  {code:"AHB7616", name:"0.9% NaCl irrigation 6x2000mL"},
+  {code:"AHB0304", name:"Water for injections 12x1000"},
+  {code:"AHB0944A", name:"Heparin 2000IU/1000mL NaCl 12x1000"},
+  {code:"AHB0953A", name:"Heparin 1000IU/500mL NaCl 18x500"},
+  {code:"AHB0164", name:"10% glucose 12x1000"},
+  {code:"AHB0064", name:"5% glucose 12x1000"},
+  {code:"AHB1306A", name:"0.9% NaCl 60x50"},
+  {code:"AHB1322", name:"0.9% NaCl 24x250"},
+  {code:"AHB0253", name:"50% glucose 18x500"},
+  {code:"AHB0163", name:"10% glucose 18x500"},
+  {code:"AHB0062", name:"5% glucose 24x250"},
+  {code:"AHB0063", name:"5% glucose 18x500"},
+  {code:"AHB0087", name:"5% glucose 48x100"},
+  {code:"AHB0086A", name:"5% glucose 60x50"},
+  {code:"AHB2323", name:"Hartmann's 18x500"},
+  {code:"AHB1313", name:"0.45% NaCl 18x500"},
+  {code:"AHB2544", name:"Plasma-Lyte 148 12x1000"},
+  {code:"AHF7113", name:"Water for irrigation pour 15x500"},
+  {code:"AHF7123", name:"0.9% NaCl irrigation pour 15x500"},
+  {code:"AHF7114", name:"Water for irrigation pour 10x1000"},
+  {code:"AHB2026", name:"0.22% NaCl + 10% glucose 18x500"},
+  {code:"AHB1174", name:"KCl 30mmol in 5% glucose 12x1000", kcl:true},
+  {code:"AHB6028", name:"5% glucose + 0.45% NaCl 12x1000"},
+  {code:"AHB2543", name:"Plasma-Lyte 148 18x500"},
+  {code:"AHB1064", name:"0.9% NaCl + 5% glucose 12x1000"},
+  {code:"AHB6008", name:"KCl 10mmol in 0.29% NaCl 48x100", kcl:true},
+  {code:"AHB2954", name:"KCl 30mmol in Hartmann's 12x1000", kcl:true},
+  {code:"AHB1274", name:"KCl 30mmol in 0.9% NaCl 12x1000", kcl:true},
+  {code:"AHB1224", name:"KCl 30mmol in 0.18% NaCl + 4% glucose 12x1000", kcl:true},
+  {code:"AHB3025", name:"Mannitol 20% 18x500"},
+  {code:"2B7231", name:"0.9% NaCl irrigation USP 6x1000", note:"on SLUSH shelf"},
+  {code:"AHB2304", name:"Ringers injection 12x1000"},
+  {code:"AHK6041", name:"Cardioplegia 12x1000"},
+  {code:"AHB1254", name:"0.18% NaCl + 4% glucose 12x1000"},
+  {code:"AHB7127", name:"0.9% NaCl irrigation 4x3000"},
+  {code:"AHB7317", name:"1.5% glycine irrigation 4x3000"},
+  {code:"AHB1253", name:"0.18% NaCl + 4% glucose 18x500"},
+  {code:"AHK6046", name:"3% NaCl 24x250"},
+  {code:"AHB1354", name:"3% NaCl 12x1000"}
+];
+const CH_CODES = ["0062","0063","0064","0087","0163","0164","0253","0304","0953","1023","1064","1243","1253","1306","1307","1313","1322","1323","1324","1354","2026","2304","2323","2324","2543","2544","2584","3025","6024","6028","6041","6046","6066","7113","7114","7123","7163","7317","7606","7616"];
+const CH_CODE_ONLY = {1323:1, 6024:1, 6066:1};
+const CH_SEED = ["7113","1324","1064","7123","2544","1323","2584","7606","6024","2323","7163","1307"];
+const CH_TICKS = ["Strap","Slush"];
 
 let S = null;
 let route = {page:"round", wardId:null};
 let toastTimer = 0;
-let draftOrder = null; // in-progress order on the Order screen
+let draftOrder = null;
 
 function esc(s){
-  return String(s==null?"":s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  return String(s==null?"":s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
 }
 function uid(prefix){ return prefix + Math.random().toString(36).slice(2,8); }
-function slug(name){ return String(name).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,''); }
+function slug(name){ return String(name).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,""); }
 
 function zonedNow(){
   const parts = {};
-  for (const p of new Intl.DateTimeFormat('en-AU',{
-    timeZone:TZ, year:'numeric', month:'2-digit', day:'2-digit',
-    weekday:'short', hour:'2-digit', minute:'2-digit', hour12:false
+  for (const p of new Intl.DateTimeFormat("en-AU",{
+    timeZone:TZ, year:"numeric", month:"2-digit", day:"2-digit",
+    weekday:"short", hour:"2-digit", minute:"2-digit", hour12:false
   }).formatToParts(new Date())){
-    if (p.type !== 'literal') parts[p.type] = p.value;
+    if (p.type !== "literal") parts[p.type] = p.value;
   }
   return {
-    iso: parts.year + '-' + parts.month + '-' + parts.day,
+    iso: parts.year + "-" + parts.month + "-" + parts.day,
     weekday: parts.weekday,
     hour: Number(parts.hour),
     minute: Number(parts.minute),
@@ -185,45 +281,84 @@ function zonedNow(){
   };
 }
 function addDays(iso, n){
-  const [y,m,d] = iso.split('-').map(Number);
+  const [y,m,d] = iso.split("-").map(Number);
   const dt = new Date(Date.UTC(y, m-1, d+n, 12));
   return dt.toISOString().slice(0,10);
 }
 function dowOf(iso){
-  const [y,m,d] = iso.split('-').map(Number);
+  const [y,m,d] = iso.split("-").map(Number);
   return new Date(Date.UTC(y, m-1, d, 12)).getUTCDay();
 }
 function prettyDate(iso){
-  if (!iso) return '';
-  const [y,m,d] = iso.split('-').map(Number);
+  if (!iso) return "";
+  const [y,m,d] = iso.split("-").map(Number);
   const dt = new Date(Date.UTC(y, m-1, d, 12));
-  return new Intl.DateTimeFormat('en-AU',{timeZone:'UTC', weekday:'short', day:'numeric', month:'short', year:'numeric'}).format(dt);
+  return new Intl.DateTimeFormat("en-AU",{timeZone:"UTC", weekday:"short", day:"numeric", month:"short", year:"numeric"}).format(dt);
 }
 function shortDate(iso){
-  if (!iso) return '';
-  const [y,m,d] = iso.split('-').map(Number);
+  if (!iso) return "";
+  const [y,m,d] = iso.split("-").map(Number);
   const dt = new Date(Date.UTC(y, m-1, d, 12));
-  return new Intl.DateTimeFormat('en-AU',{timeZone:'UTC', weekday:'short', day:'numeric', month:'short'}).format(dt);
+  return new Intl.DateTimeFormat("en-AU",{timeZone:"UTC", weekday:"short", day:"numeric", month:"short"}).format(dt);
 }
 
+function bareProductCode(code){
+  return String(code||"").toUpperCase().replace(/^(AHB|AHF|AHK)/,"").replace(/A$/,"");
+}
+function powNameFor(shortCode){
+  const bare = bareProductCode(shortCode);
+  if (CH_CODE_ONLY[bare]) return "";
+  const row = POW_CATALOG.find(p => bareProductCode(p.code)===bare);
+  return row ? row.name : "";
+}
+function isOt2Name(name){
+  return /^\s*ot\s*2\s*$/i.test(String(name||""));
+}
+function displayCode(c){
+  if (!c) return "";
+  if (c.tickOnly || !String(c.code||"").trim()) return c.name || "";
+  return c.code;
+}
+function displayMeta(c){
+  if (!c) return "";
+  if (c.tickOnly) return "";
+  return c.name || "";
+}
+function lineUnit(line){ return (line && line.unit==="ea") ? "ea" : "box"; }
+function kclBadge(c){ return (c && c.kcl) ? "<span class=\"chip kcl\">KCl</span>" : ""; }
+function kclMark(c){ return (c && c.kcl) ? "<span class=\"kcl\">KCl</span>" : ""; }
+
 function defaultState(){
-  const siteId = "s-main";
-  const wards = DEFAULT_WARDS.map((name,i) => ({id:'w-'+slug(name), name, order:i, siteId, enabled:true}));
-  EXTRA_WARDS.forEach((name,i) => {
-    wards.push({id:'w-'+slug(name), name, order: DEFAULT_WARDS.length+i, siteId, enabled:false});
+  const wards = [];
+  POW_WARD_DEFS.forEach((w,i) => wards.push({id:w.id, name:w.name, order:i, siteId:SITE_POW, enabled:true}));
+  CH_WARD_DEFS.forEach((w,i) => wards.push({id:w.id, name:w.name, order:i, siteId:SITE_CH, enabled:true}));
+  CH_EXTRA_WARDS.forEach((w,i) => wards.push({id:w.id, name:w.name, order:CH_WARD_DEFS.length+i, siteId:SITE_CH, enabled:false}));
+  const codes = [];
+  POW_CATALOG.forEach(p => {
+    codes.push({id:"c-pow-"+p.code, code:p.code, name:p.name||"", note:p.note||"", kcl:!!p.kcl, tickOnly:false, unit:"box", par:0, stock:0, siteId:SITE_POW, seed:0});
   });
-  const codes = DEFAULT_CODES.map(code => ({id:'c-'+code, code, name:'', unit:'EA', par:0, stock:0}));
+  const seedAt = Object.fromEntries(CH_SEED.map((c,i)=>[c, CH_SEED.length-i]));
+  CH_CODES.forEach(code => {
+    codes.push({id:"c-"+code, code, name:powNameFor(code), note:"", kcl:false, tickOnly:false, unit:"box", par:0, stock:0, siteId:SITE_CH, seed:seedAt[code]||0});
+  });
+  CH_TICKS.forEach(name => {
+    codes.push({id:"c-"+slug(name), code:"", name, note:"", kcl:false, tickOnly:true, unit:"box", par:0, stock:0, siteId:SITE_CH, seed:0});
+  });
   return {
-    version: 1,
+    version: 2,
     appVersion: VERSION,
-    sites: [{id:siteId, name:'Main'}],
+    sites: [
+      {id:SITE_POW, name:"POW"},
+      {id:SITE_CH, name:"Children's"}
+    ],
     wards,
     codes,
     settings: {
-      partnerName: '',
-      waNumber: '',
+      partnerName: "",
+      waNumber: "",
       orderWeekdays: [2,4],
-      orderHour: 11
+      orderHour: 11,
+      currentSiteId: SITE_CH
     },
     rounds: {},
     orders: [],
@@ -237,12 +372,23 @@ function load(){
     if (!raw){ S = defaultState(); save(); return; }
     S = JSON.parse(raw);
     migrate(S);
+    save();
   }catch(e){
     S = defaultState();
   }
 }
+function siteExists(s, id){ return (s.sites||[]).some(x => x.id===id); }
+function findSiteCode(s, siteId, code){
+  const bare = bareProductCode(code);
+  return (s.codes||[]).find(c => c.siteId===siteId && !c.tickOnly && bareProductCode(c.code)===bare);
+}
+function findTick(s, siteId, name){
+  const n = String(name||"").toLowerCase();
+  return (s.codes||[]).find(c => c.siteId===siteId && (c.tickOnly || !c.code) && String(c.name||"").toLowerCase()===n);
+}
+
 function migrate(s){
-  if (!s.sites || !s.sites.length) s.sites = [{id:'s-main', name:'Main'}];
+  if (!s.sites) s.sites = [];
   if (!s.wards) s.wards = [];
   if (!s.codes) s.codes = [];
   if (!s.rounds) s.rounds = {};
@@ -250,34 +396,177 @@ function migrate(s){
   if (!s.trolley) s.trolley = {};
   if (!s.settings) s.settings = {};
   const st = s.settings;
-  if (st.partnerName == null) st.partnerName = '';
-  if (st.waNumber == null) st.waNumber = '';
+  if (st.partnerName == null) st.partnerName = "";
+  if (st.waNumber == null) st.waNumber = "";
   if (!st.orderWeekdays) st.orderWeekdays = [2,4];
   if (st.orderHour == null) st.orderHour = 11;
+
+  if (!siteExists(s, SITE_POW)) s.sites.push({id:SITE_POW, name:"POW"});
+  else {
+    const pow = s.sites.find(x => x.id===SITE_POW);
+    if (pow && (!pow.name || pow.name==="Main")) pow.name = "POW";
+  }
+  if (!siteExists(s, SITE_CH)) s.sites.push({id:SITE_CH, name:"Children's"});
+  else {
+    const ch = s.sites.find(x => x.id===SITE_CH);
+    if (ch && !ch.name) ch.name = "Children's";
+  }
+  const powS = s.sites.find(x => x.id===SITE_POW);
+  const chS = s.sites.find(x => x.id===SITE_CH);
+  const rest = s.sites.filter(x => x.id!==SITE_POW && x.id!==SITE_CH && x.id!=="s-main");
+  s.sites = [powS, chS, ...rest].filter(Boolean);
+
+  const chIds = new Set(CH_WARD_DEFS.concat(CH_EXTRA_WARDS).map(w => w.id));
+  const chNames = new Set(CH_WARD_DEFS.concat(CH_EXTRA_WARDS).map(w => w.name.toLowerCase()));
+  Object.keys(CH_RENAME).forEach(k => chNames.add(k.toLowerCase()));
+  chNames.add("rec 2 room a"); chNames.add("rec 2 room b");
+
   s.wards.forEach((w,i) => {
     if (w.order == null) w.order = i;
-    if (!w.siteId) w.siteId = s.sites[0].id;
     if (w.enabled == null) w.enabled = true;
+    if (CH_RENAME[w.name]) w.name = CH_RENAME[w.name];
+    if (isOt2Name(w.name)) w.enabled = false;
+    if (!w.siteId || w.siteId==="s-main" || !siteExists(s, w.siteId)){
+      w.siteId = SITE_CH;
+    }
   });
+  s.orders.forEach(o => {
+    if (!o.siteId || o.siteId==="s-main") o.siteId = SITE_CH;
+  });
+
+  const haveId = new Set(s.wards.map(w => w.id));
+  const haveName = new Set(s.wards.filter(w => w.siteId===SITE_CH).map(w => String(w.name||"").toLowerCase()));
+  CH_WARD_DEFS.forEach((def, i) => {
+    if (isOt2Name(def.name)) return;
+    const exists = haveId.has(def.id) || haveName.has(def.name.toLowerCase());
+    if (exists){
+      const w = s.wards.find(x => x.id===def.id) || s.wards.find(x => x.siteId===SITE_CH && String(x.name).toLowerCase()===def.name.toLowerCase());
+      if (w && w.siteId!==SITE_CH) w.siteId = SITE_CH;
+      return;
+    }
+    s.wards.push({id:def.id, name:def.name, order:i, siteId:SITE_CH, enabled:true});
+    haveId.add(def.id); haveName.add(def.name.toLowerCase());
+  });
+  CH_EXTRA_WARDS.forEach((def, i) => {
+    if (haveId.has(def.id) || haveName.has(def.name.toLowerCase())) return;
+    s.wards.push({id:def.id, name:def.name, order:CH_WARD_DEFS.length+i, siteId:SITE_CH, enabled:false});
+  });
+  const chIndex = Object.fromEntries(CH_WARD_DEFS.concat(CH_EXTRA_WARDS).map((w,i)=>[w.id,i]));
+  const chByName = Object.fromEntries(CH_WARD_DEFS.concat(CH_EXTRA_WARDS).map((w,i)=>[w.name.toLowerCase(),i]));
+  Object.keys(CH_RENAME).forEach(k => { chByName[k.toLowerCase()] = chByName[CH_RENAME[k].toLowerCase()]; });
+  const chWards = s.wards.filter(w => w.siteId===SITE_CH);
+  const known = chWards.filter(w => chIndex[w.id]!=null || chByName[String(w.name||"").toLowerCase()]!=null)
+    .sort((a,b) => (chIndex[a.id]??chByName[String(a.name||"").toLowerCase()]??99) - (chIndex[b.id]??chByName[String(b.name||"").toLowerCase()]??99));
+  const unknown = chWards.filter(w => !known.includes(w)).sort((a,b)=>a.order-b.order);
+  known.concat(unknown).forEach((w,i) => { w.order = i; });
+
+  if (!s.wards.some(w => w.siteId===SITE_POW)){
+    POW_WARD_DEFS.forEach((def,i) => {
+      s.wards.push({id:def.id, name:def.name, order:i, siteId:SITE_POW, enabled:true});
+    });
+  }
+
+  s.sites = s.sites.filter(x => x.id!=="s-main");
+
   s.codes.forEach(c => {
-    if (!c.unit) c.unit = 'EA';
     if (c.par == null) c.par = 0;
     if (c.stock == null) c.stock = 0;
-    if (c.name == null) c.name = '';
+    if (c.name == null) c.name = "";
+    if (c.note == null) c.note = "";
+    if (c.kcl == null) c.kcl = false;
+    if (c.tickOnly == null) c.tickOnly = !String(c.code||"").trim() && !!c.name;
+    if (c.seed == null) c.seed = 0;
+    if (!c.unit || c.unit==="EA" || c.unit==="ea") c.unit = "box";
+    if (!c.siteId || c.siteId==="s-main") c.siteId = SITE_CH;
   });
+
+  const seedAt = Object.fromEntries(CH_SEED.map((c,i)=>[c, CH_SEED.length-i]));
+  CH_CODES.forEach(code => {
+    let c = findSiteCode(s, SITE_CH, code);
+    if (!c){
+      c = {id:"c-"+code, code, name:powNameFor(code), note:"", kcl:false, tickOnly:false, unit:"box", par:0, stock:0, siteId:SITE_CH, seed:seedAt[code]||0};
+      s.codes.push(c);
+    } else {
+      if (!c.name) c.name = powNameFor(code);
+      if (seedAt[code] && !c.seed) c.seed = seedAt[code];
+      if (bareProductCode(c.code)===code && c.code.toUpperCase()!==code) c.code = code;
+    }
+  });
+  CH_TICKS.forEach(name => {
+    let c = findTick(s, SITE_CH, name);
+    if (!c){
+      s.codes.push({id:"c-"+slug(name), code:"", name, note:"", kcl:false, tickOnly:true, unit:"box", par:0, stock:0, siteId:SITE_CH, seed:0});
+    } else {
+      c.tickOnly = true;
+      c.name = name;
+      if (c.code && c.code.toLowerCase()===name.toLowerCase()) c.code = "";
+    }
+  });
+  POW_CATALOG.forEach(p => {
+    let c = findSiteCode(s, SITE_POW, p.code);
+    if (!c){
+      s.codes.push({id:"c-pow-"+p.code, code:p.code, name:p.name||"", note:p.note||"", kcl:!!p.kcl, tickOnly:false, unit:"box", par:0, stock:0, siteId:SITE_POW, seed:0});
+    } else {
+      if (!c.name) c.name = p.name||"";
+      if (p.note && !c.note) c.note = p.note;
+      if (p.kcl) c.kcl = true;
+    }
+  });
+
+  Object.values(s.rounds).forEach(round => {
+    Object.values(round.wards||{}).forEach(entry => {
+      (entry.lines||[]).forEach(line => {
+        if (!line.unit || line.unit==="EA") line.unit = "box";
+      });
+    });
+  });
+  (s.orders||[]).forEach(o => {
+    (o.lines||[]).forEach(line => {
+      if (!line.unit || line.unit==="EA") line.unit = "box";
+    });
+  });
+
+  if (!st.currentSiteId || st.currentSiteId==="s-main" || !siteExists(s, st.currentSiteId)){
+    st.currentSiteId = SITE_CH;
+  }
+  s.version = Math.max(Number(s.version)||1, 2);
+  s.appVersion = VERSION;
 }
 function save(){
   try{ localStorage.setItem(STORE, JSON.stringify(S)); }
-  catch(e){ toast('Could not save — storage may be full'); }
+  catch(e){ toast("Could not save — storage may be full"); }
 }
 
+function currentSiteId(){
+  const id = S.settings && S.settings.currentSiteId;
+  if (id && siteById(id)) return id;
+  return (S.sites[0]&&S.sites[0].id) || SITE_POW;
+}
+function setCurrentSite(id){
+  if (!siteById(id)) return;
+  S.settings.currentSiteId = id;
+  draftOrder = null;
+  save();
+  if (route.page==="round-ward"){
+    const w = wardById(route.wardId);
+    if (!w || w.siteId!==id){ location.hash = "round"; return; }
+  }
+  render();
+}
 function enabledWards(){
-  return S.wards.filter(w => w.enabled).sort((a,b)=>a.order-b.order);
+  const sid = currentSiteId();
+  return S.wards.filter(w => w.enabled && w.siteId===sid).sort((a,b)=>a.order-b.order);
+}
+function siteCodes(siteId){
+  const sid = siteId || currentSiteId();
+  return S.codes.filter(c => c.siteId===sid);
 }
 function wardById(id){ return S.wards.find(w => w.id===id); }
 function codeById(id){ return S.codes.find(c => c.id===id); }
 function siteById(id){ return S.sites.find(s => s.id===id); }
-function codeOrder(){ return S.codes.map(c => c.id); }
+function codeOrder(siteId){
+  return siteCodes(siteId).slice().sort((a,b) => (b.seed||0)-(a.seed||0) || String(a.code||a.name).localeCompare(String(b.code||b.name))).map(c => c.id);
+}
 
 function todayRound(){
   const day = zonedNow().iso;
@@ -287,12 +576,12 @@ function todayRound(){
   return S.rounds[day];
 }
 function wardEntry(round, wardId){
-  if (!round.wards[wardId]) round.wards[wardId] = {status:'pending', lines:[]};
+  if (!round.wards[wardId]) round.wards[wardId] = {status:"pending", lines:[]};
   return round.wards[wardId];
 }
 
 function qtyNum(q){
-  if (q==='' || q==null) return null;
+  if (q==="" || q==null) return null;
   const n = Number(q);
   return Number.isFinite(n) ? n : null;
 }
@@ -301,13 +590,12 @@ function usageQty(q){
   return n==null ? 1 : n;
 }
 
-/* Live popularity from every saved and in-progress round line. */
 function popularity(){
   const overall = {};
   const byWard = {};
   const bySite = {};
   function bump(bag, id, qty, day){
-    if (!bag[id]) bag[id] = {qty:0, hits:0, last:''};
+    if (!bag[id]) bag[id] = {qty:0, hits:0, last:"", seed:0};
     bag[id].qty += qty;
     bag[id].hits += 1;
     if (day > bag[id].last) bag[id].last = day;
@@ -316,7 +604,7 @@ function popularity(){
     const day = round.date;
     Object.entries(round.wards||{}).forEach(([wid, entry]) => {
       const ward = wardById(wid);
-      const siteId = ward ? ward.siteId : 's-main';
+      const siteId = ward ? ward.siteId : SITE_CH;
       if (!byWard[wid]) byWard[wid] = {};
       if (!bySite[siteId]) bySite[siteId] = {};
       (entry.lines||[]).forEach(line => {
@@ -327,26 +615,38 @@ function popularity(){
       });
     });
   });
+  S.codes.forEach(c => {
+    if (!c.seed) return;
+    const sid = c.siteId;
+    if (!bySite[sid]) bySite[sid] = {};
+    if (!overall[c.id]) overall[c.id] = {qty:0, hits:0, last:"", seed:c.seed};
+    else overall[c.id].seed = c.seed;
+    if (!bySite[sid][c.id]) bySite[sid][c.id] = {qty:0, hits:0, last:"", seed:c.seed};
+    else bySite[sid][c.id].seed = c.seed;
+  });
   return {overall, byWard, bySite};
 }
 function rankedIds(bag, fallback){
   const ids = Object.keys(bag||{});
   ids.sort((a,b) => {
     const A = bag[a]||{}, B = bag[b]||{};
-    return (B.qty||0)-(A.qty||0) || (B.hits||0)-(A.hits||0) || String(B.last||'').localeCompare(String(A.last||'')) || a.localeCompare(b);
+    return (B.qty||0)-(A.qty||0) || (B.hits||0)-(A.hits||0) || String(B.last||"").localeCompare(String(A.last||"")) || (B.seed||0)-(A.seed||0) || a.localeCompare(b);
   });
   (fallback||[]).forEach(id => { if (!ids.includes(id)) ids.push(id); });
   return ids;
 }
 function codesForWard(wardId, pop){
-  const wardRank = rankedIds(pop.byWard[wardId]||{}, rankedIds(pop.overall, codeOrder()));
-  return wardRank.map(id => codeById(id)).filter(Boolean);
+  const w = wardById(wardId);
+  const sid = w ? w.siteId : currentSiteId();
+  const wardRank = rankedIds(pop.byWard[wardId]||{}, rankedIds(pop.bySite[sid]||pop.overall, codeOrder(sid)));
+  return wardRank.map(id => codeById(id)).filter(c => c && c.siteId===sid);
 }
 
-function lastDeliveryDate(today){
+function lastDeliveryDateFor(today, siteId){
   let last = null;
   S.orders.forEach(o => {
     if (!o.sentAt) return;
+    if (siteId && o.siteId && o.siteId!==siteId) return;
     const d = o.expectedDelivery;
     if (d && d <= today && (!last || d > last)) last = d;
   });
@@ -379,18 +679,18 @@ function defaultDelivery(iso, urgent){
 }
 function suggestOrder(siteId){
   const today = zonedNow().iso;
-  const last = lastDeliveryDate(today);
+  const last = lastDeliveryDateFor(today, siteId);
   const used = usageSince(last, siteId);
   const pop = popularity();
   const sitePop = pop.bySite[siteId] || pop.overall;
   const lines = [];
-  S.codes.forEach(c => {
+  siteCodes(siteId).forEach(c => {
     const usage = used[c.id]||0;
     const low = Math.max(0, (Number(c.par)||0) - (Number(c.stock)||0));
     const qty = usage + low;
-    if (qty > 0) lines.push({codeId:c.id, qty, usage, low});
+    if (qty > 0) lines.push({codeId:c.id, qty, usage, low, unit:"box"});
   });
-  const order = rankedIds(sitePop, codeOrder());
+  const order = rankedIds(sitePop, codeOrder(siteId));
   const idx = Object.fromEntries(order.map((id,i)=>[id,i]));
   lines.sort((a,b) => (idx[a.codeId]??999) - (idx[b.codeId]??999));
   return {last, lines};
@@ -403,23 +703,24 @@ function beforeCutoff(z){
   return z.hour < (S.settings.orderHour||11);
 }
 function orderSentOn(iso){
-  return S.orders.some(o => o.sentAt && o.sentDate === iso);
+  const sid = currentSiteId();
+  return S.orders.some(o => o.sentAt && o.sentDate === iso && (!o.siteId || o.siteId===sid));
 }
 
 function toast(msg){
-  const el = document.getElementById('toast');
+  const el = document.getElementById("toast");
   el.textContent = msg;
-  el.classList.add('show');
+  el.classList.add("show");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 2200);
 }
 
 function parseRoute(){
-  const h = (location.hash||'#round').replace(/^#/, '');
-  const parts = h.split('/');
-  const page = parts[0] || 'round';
-  if (page==='round' && parts[1]) route = {page:'round-ward', wardId:decodeURIComponent(parts[1])};
-  else if (page==='history' || page==='setup') route = {page, wardId:null};
+  const h = (location.hash||"#round").replace(/^#/, "");
+  const parts = h.split("/");
+  const page = parts[0] || "round";
+  if (page==="round" && parts[1]) route = {page:"round-ward", wardId:decodeURIComponent(parts[1])};
+  else if (page==="history" || page==="setup") route = {page, wardId:null};
   else route = {page, wardId:null};
 }
 
@@ -427,67 +728,84 @@ function render(){
   parseRoute();
   const z = zonedNow();
   clearTimeout(toastTimer);
-  document.getElementById('toast').classList.remove('show');
+  document.getElementById("toast").classList.remove("show");
   renderBar(z);
   renderBanners(z);
-  const view = document.getElementById('view');
+  const view = document.getElementById("view");
   const page = route.page;
-  if (page==='round') view.innerHTML = renderRoundList(z);
-  else if (page==='round-ward') view.innerHTML = renderRoundWard(z);
-  else if (page==='trolleys') view.innerHTML = renderTrolleys(z);
-  else if (page==='stock') view.innerHTML = renderStock();
-  else if (page==='order') view.innerHTML = renderOrder(z);
-  else if (page==='history' || page==='more') view.innerHTML = renderMore(z);
-  else if (page==='setup') view.innerHTML = renderSetup();
+  if (page==="round") view.innerHTML = renderRoundList(z);
+  else if (page==="round-ward") view.innerHTML = renderRoundWard(z);
+  else if (page==="trolleys") view.innerHTML = renderTrolleys(z);
+  else if (page==="stock") view.innerHTML = renderStock();
+  else if (page==="order") view.innerHTML = renderOrder(z);
+  else if (page==="history" || page==="more") view.innerHTML = renderMore(z);
+  else if (page==="setup") view.innerHTML = renderSetup();
   else view.innerHTML = renderRoundList(z);
-  const navPage = (page==='round-ward') ? 'round' : (page==='history'||page==='setup') ? 'more' : page;
-  document.querySelectorAll('nav.tabbar a').forEach(a => a.classList.toggle('on', a.dataset.nav===navPage));
+  const navPage = (page==="round-ward") ? "round" : (page==="history"||page==="setup") ? "more" : page;
+  document.querySelectorAll("nav.tabbar a").forEach(a => a.classList.toggle("on", a.dataset.nav===navPage));
   requestAnimationFrame(() => window.scrollTo(0, 0));
   maybeNotify(z);
 }
 
+function renderSiteToggle(){
+  if (!S.sites || S.sites.length<2) return "";
+  const cur = currentSiteId();
+  return `<div class="sitetog" role="tablist" aria-label="Site">${S.sites.map(s =>
+    `<button type="button" role="tab" aria-selected="${s.id===cur?"true":"false"}" class="${s.id===cur?"on":""}" data-act="set-site" data-id="${esc(s.id)}">${esc(s.name)}</button>`
+  ).join("")}</div>`;
+}
+
 function renderBar(z){
-  const bar = document.getElementById('appbar');
-  const back = route.page==='round-ward' || route.page==='setup' || route.page==='history';
-  let title = 'Ward Run';
+  const bar = document.getElementById("appbar");
+  const back = route.page==="round-ward" || route.page==="setup" || route.page==="history";
+  let title = "Ward Run";
   let sub = shortDate(z.iso);
-  if (route.page==='round-ward'){
+  if (route.page==="round-ward"){
     const w = wardById(route.wardId);
-    title = w ? w.name : 'Ward';
+    title = w ? w.name : "Ward";
     sub = shortDate(z.iso);
-  } else if (route.page==='trolleys') title = 'Trolleys';
-  else if (route.page==='stock') title = 'Storage stock';
-  else if (route.page==='order') title = 'Order';
-  else if (route.page==='setup') title = 'Setup';
-  else if (route.page==='history') title = 'History';
-  else if (route.page==='more') title = 'More';
-  let extra = '';
-  if (route.page==='round' || route.page==='round-ward'){
+  } else if (route.page==="trolleys") title = "Trolleys";
+  else if (route.page==="stock") title = "Storage stock";
+  else if (route.page==="order") title = "Order";
+  else if (route.page==="setup") title = "Setup";
+  else if (route.page==="history") title = "History";
+  else if (route.page==="more") title = "More";
+  let extra = "";
+  if (route.page==="round" || route.page==="round-ward"){
     const r = todayRound();
     const wards = enabledWards();
     const done = wards.filter(w => {
       const e = r.wards[w.id];
-      return e && (e.status==='checked' || e.status==='nothing');
+      return e && (e.status==="checked" || e.status==="nothing");
     }).length;
     const pct = wards.length ? Math.round(done/wards.length*100) : 0;
     extra = `<div class="progress" style="width:72px" title="${done} of ${wards.length}"><span style="width:${pct}%"></span></div>`;
-    if (route.page==='round') sub = shortDate(z.iso) + ' · ' + done + ' of ' + wards.length;
+    if (route.page==="round") sub = shortDate(z.iso) + " · " + done + " of " + wards.length;
   }
+  const site = siteById(currentSiteId());
+  if (site && route.page!=="round-ward") sub = (sub ? sub + " · " : "") + site.name;
   bar.innerHTML =
-    (back ? `<button class="back" data-act="back" aria-label="Back">‹</button>` : '') +
-    `<div class="grow"><h1>${esc(title)}</h1><p class="sub">${esc(sub)}</p></div>${extra}`;
+    (back ? `<button class="back" data-act="back" aria-label="Back">‹</button>` : "") +
+    `<div class="grow"><h1>${esc(title)}</h1><p class="sub">${esc(sub)}</p></div>${extra}` +
+    renderSiteToggle();
 }
 
 function renderBanners(z){
-  const el = document.getElementById('banners');
-  if (!isOrderDay(z) || orderSentOn(z.iso)){ el.innerHTML=''; return; }
+  const el = document.getElementById("banners");
+  if (!isOrderDay(z) || orderSentOn(z.iso)){ el.innerHTML=""; return; }
   const hour = S.settings.orderHour||11;
-  const name = S.settings.partnerName || 'your partner';
+  const name = S.settings.partnerName || "your partner";
   if (beforeCutoff(z)){
     el.innerHTML = `<div class="banner" role="status"><b>Order day</b>Send ${esc(name)} the restock list before ${hour}:00.</div>`;
   } else {
     el.innerHTML = `<div class="banner late" role="status"><b>Order may be late</b>Today’s list has not been marked as sent yet.</div>`;
   }
+}
+
+function unitToggle(act, extra, unit){
+  const on = unit==="ea";
+  const attrs = Object.entries(extra||{}).map(([k,v]) => `data-${k}="${esc(v)}"`).join(" ");
+  return `<button type="button" class="unitbtn${on?" on":""}" data-act="${esc(act)}" ${attrs} aria-pressed="${on?"true":"false"}" aria-label="${on?"Single packets, tap for boxes":"Boxes, tap for single packets"}">${on?"ea":"box"}</button>`;
 }
 
 function renderRoundList(z){
@@ -497,22 +815,22 @@ function renderRoundList(z){
   if (!wards.length) return `<div class="card empty">No wards on the round yet. Add or turn some on in Setup.</div>`;
   return wards.map(w => {
     const e = r.wards[w.id];
-    const status = e ? e.status : 'pending';
+    const status = e ? e.status : "pending";
     const n = e ? (e.lines||[]).length : 0;
     let chip = `<span class="chip idle">To do</span>`;
-    let meta = 'Not started';
-    if (status==='nothing'){ chip = `<span class="chip">Nothing needed</span>`; meta='Checked, nothing needed'; }
-    else if (status==='checked'){ chip = `<span class="chip ok">Checked</span>`; meta = n + (n===1?' code':' codes'); }
-    else if (n){ chip = `<span class="chip warn">In progress</span>`; meta = n + (n===1?' code':' codes'); }
+    let meta = "Not started";
+    if (status==="nothing"){ chip = `<span class="chip">Nothing needed</span>`; meta="Checked, nothing needed"; }
+    else if (status==="checked"){ chip = `<span class="chip ok">Checked</span>`; meta = n + (n===1?" code":" codes"); }
+    else if (n){ chip = `<span class="chip warn">In progress</span>`; meta = n + (n===1?" code":" codes"); }
     const top = (pop.byWard[w.id] && Object.keys(pop.byWard[w.id]).length)
-      ? codesForWard(w.id, pop).slice(0,2).map(c=>c.code).join(', ')
-      : '';
-    if (top && status==='pending' && !n) meta = 'Often: ' + top;
+      ? codesForWard(w.id, pop).slice(0,2).map(c=>displayCode(c)).join(", ")
+      : "";
+    if (top && status==="pending" && !n) meta = "Often: " + top;
     return `<button class="ward" data-act="open-ward" data-id="${esc(w.id)}">
-      <div class="grow"><div class="name">${esc(w.name)}</div><div class="meta">${esc(meta)}</div></div>
+      <div class="grow"><div class="name">${esc(w.name)}</div><div class="muted">${esc(meta)}</div></div>
       ${chip}
     </button>`;
-  }).join('') + brandFoot();
+  }).join("") + brandFoot();
 }
 
 function renderRoundWard(z){
@@ -526,29 +844,37 @@ function renderRoundWard(z){
   const topIds = new Set(Object.keys(pop.byWard[w.id]||{}));
   const lineHtml = (e.lines||[]).map(l => {
     const c = codeById(l.codeId);
-    if (!c) return '';
-    const q = l.qty==null||l.qty==='' ? '—' : String(l.qty);
+    if (!c) return "";
+    const q = l.qty==null||l.qty==="" ? "—" : String(l.qty);
+    const u = lineUnit(l);
+    const meta = displayMeta(c);
+    const note = c.note ? ` <span class="shelfnote">${esc(c.note)}</span>` : "";
     return `<div class="line">
-      <div class="grow"><div class="code">${esc(c.code)}</div><div class="muted">${esc(c.name||c.unit)}</div></div>
-      <div class="stepper">
-        <button type="button" data-act="qty" data-dir="-1" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}" aria-label="Decrease">−</button>
-        <div class="q">${esc(q)}</div>
-        <button type="button" data-act="qty" data-dir="1" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}" aria-label="Increase">+</button>
+      <div class="grow"><div class="code">${esc(displayCode(c))} ${kclBadge(c)}</div>
+        <div class="muted">${esc(meta||u)}${note}</div></div>
+      <div class="unitpair">
+        <div class="stepper">
+          <button type="button" data-act="qty" data-dir="-1" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}" aria-label="Decrease">−</button>
+          <div class="q">${esc(q)}</div>
+          <button type="button" data-act="qty" data-dir="1" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}" aria-label="Increase">+</button>
+        </div>
+        ${unitToggle("line-unit", {wid:w.id, cid:c.id}, u)}
       </div>
       <button class="btn ghost" data-act="remove-line" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}" aria-label="Remove">✕</button>
     </div>`;
-  }).join('') || `<div class="muted">Tap a code to add it. Quantity is optional.</div>`;
+  }).join("") || `<div class="muted">Tap a code to add one box. Quantity is optional. Tap box/ea beside the count for single packets.</div>`;
   const codeBtns = codes.map((c,i) => {
-    const hot = i<3 && topIds.has(c.id);
-    return `<button type="button" class="codebtn${used.has(c.id)?' on':''}${hot?' hot':''}" data-act="add-code" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}">
-      ${esc(c.code)}${c.name?`<span class="cn">${esc(c.name)}</span>`:''}
+    const hot = i<3 && (topIds.has(c.id) || (c.seed||0)>0);
+    const sub = c.tickOnly ? "" : (c.name?`<span class="cn">${esc(c.name)}</span>`:"") + kclMark(c) + (c.note?`<span class="cn shelfnote">${esc(c.note)}</span>`:"");
+    return `<button type="button" class="codebtn${used.has(c.id)?" on":""}${hot?" hot":""}${c.kcl?" kcl":""}" data-act="add-code" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}">
+      ${esc(displayCode(c))}${sub}
     </button>`;
-  }).join('');
+  }).join("");
   const st = e.status;
   return `
     <div class="btnrow" style="margin-top:0">
-      <button class="btn ${st==='nothing'?'warn':''}" data-act="mark" data-wid="${esc(w.id)}" data-status="nothing">Nothing needed</button>
-      <button class="btn ${st==='checked'?'ok':''} primary" data-act="mark" data-wid="${esc(w.id)}" data-status="checked">Mark checked</button>
+      <button class="btn ${st==="nothing"?"warn":""}" data-act="mark" data-wid="${esc(w.id)}" data-status="nothing">Nothing needed</button>
+      <button class="btn ${st==="checked"?"ok":""} primary" data-act="mark" data-wid="${esc(w.id)}" data-status="checked">Mark checked</button>
     </div>
     <div class="card" style="margin-top:12px"><h2>This ward</h2>${lineHtml}</div>
     <h3>Codes — most used first</h3>
@@ -556,7 +882,7 @@ function renderRoundWard(z){
     <div class="btnrow">
       <button class="btn block" data-act="other-code" data-wid="${esc(w.id)}">Other code…</button>
     </div>
-    ${st!=='pending' ? `<div class="btnrow"><button class="btn ghost block" data-act="mark" data-wid="${esc(w.id)}" data-status="pending">Clear checked state</button></div>`:''}
+    ${st!=="pending" ? `<div class="btnrow"><button class="btn ghost block" data-act="mark" data-wid="${esc(w.id)}" data-status="pending">Clear checked state</button></div>`:""}
   `;
 }
 
@@ -566,14 +892,14 @@ function trolleyItems(z){
   const groups = [];
   enabledWards().forEach(w => {
     const e = r.wards[w.id];
-    if (!e || e.status==='nothing') return;
+    if (!e || e.status==="nothing") return;
     const lines = (e.lines||[]).filter(l => codeById(l.codeId));
     if (!lines.length) return;
     groups.push({ward:w, lines});
   });
   return groups;
 }
-function tickKey(day, wid, cid){ return day+'|'+wid+'|'+cid; }
+function tickKey(day, wid, cid){ return day+"|"+wid+"|"+cid; }
 
 function renderTrolleys(z){
   const groups = trolleyItems(z);
@@ -586,48 +912,50 @@ function renderTrolleys(z){
       const c = codeById(l.codeId);
       const key = tickKey(z.iso,g.ward.id,l.codeId);
       const on = !!ticks[key];
-      const q = l.qty==null||l.qty==='' ? '' : (' × '+l.qty+' '+(c.unit||'EA'));
-      return `<button type="button" class="tickrow ${on?'done':'open'}" data-act="tick" data-wid="${esc(g.ward.id)}" data-cid="${esc(c.id)}">
-        <span class="tick" aria-hidden="true">${on?'✓':''}</span>
-        <span class="grow"><span class="code">${esc(c.code)}</span> ${esc(c.name||'')}<div class="muted">${esc(q.trim()||c.unit||'EA')}</div></span>
+      const u = lineUnit(l);
+      const q = l.qty==null||l.qty==="" ? u : ("× "+l.qty+" "+u);
+      return `<button type="button" class="tickrow ${on?"done":"open"}" data-act="tick" data-wid="${esc(g.ward.id)}" data-cid="${esc(c.id)}">
+        <span class="tick" aria-hidden="true">${on?"✓":""}</span>
+        <span class="grow"><span class="code">${esc(displayCode(c))}</span> ${esc(c.name||"")} ${c.kcl?'<span class="chip kcl">KCl</span>':''}
+          <div class="muted">${esc(q)}${c.note?" · "+esc(c.note):""}</div></span>
       </button>`;
-    }).join('');
+    }).join("");
     return `<section class="trolley">
-      <h2>${esc(g.ward.name)} <span class="chip ${done===total?'ok':'warn'}">${done}/${total}</span></h2>
+      <h2>${esc(g.ward.name)} <span class="chip ${done===total?"ok":"warn"}">${done}/${total}</span></h2>
       ${rows}
     </section>`;
-  }).join('') + brandFoot();
+  }).join("") + brandFoot();
 }
 
 function renderStock(){
-  const qid = 'stock-q';
-  const rows = S.codes.map(c => {
+  const qid = "stock-q";
+  const rows = siteCodes().map(c => {
     const low = (Number(c.par)||0) > 0 && (Number(c.stock)||0) < (Number(c.par)||0);
-    return `<div class="stockrow" data-name="${esc((c.code+' '+c.name).toLowerCase())}">
-      <div class="grow"><div class="code">${esc(c.code)}</div>
-        <div class="muted">${esc(c.name||c.unit||'EA')} · par ${esc(c.par||0)}${low?' <span class="low">LOW</span>':''}</div></div>
+    return `<div class="stockrow" data-name="${esc((displayCode(c)+" "+(c.name||"")+" "+(c.note||"")).toLowerCase())}">
+      <div class="grow"><div class="code">${esc(displayCode(c))} ${kclBadge(c)}</div>
+        <div class="muted">${esc(displayMeta(c)||"box")} · par ${esc(c.par||0)}${low?' <span class="low">LOW</span>':''}${c.note?" · "+esc(c.note):""}</div></div>
       <div class="stepper">
         <button type="button" data-act="stock" data-dir="-1" data-cid="${esc(c.id)}" aria-label="Decrease stock">−</button>
         <div class="q">${esc(c.stock||0)}</div>
         <button type="button" data-act="stock" data-dir="1" data-cid="${esc(c.id)}" aria-label="Increase stock">+</button>
       </div>
     </div>`;
-  }).join('');
+  }).join("");
   return `<input class="search" id="${qid}" data-act="filter-stock" placeholder="Search codes" type="search" enterkeyhint="search">
     <div class="card">${rows || '<div class="muted">No codes yet.</div>'}</div>
-    <p class="muted">Set par levels in Setup. A low flag appears when the count is below par.</p>` + brandFoot();
+    <p class="muted">Set par levels in Setup. A low flag appears when the count is below par. Stock is kept per site.</p>` + brandFoot();
 }
 
 function ensureDraft(z){
-  if (draftOrder && draftOrder.date===z.iso) return draftOrder;
-  const siteId = (S.sites[0]&&S.sites[0].id) || 's-main';
+  const siteId = currentSiteId();
+  if (draftOrder && draftOrder.date===z.iso && draftOrder.siteId===siteId) return draftOrder;
   const sug = suggestOrder(siteId);
   draftOrder = {
     date: z.iso,
     siteId,
     urgent: !(isOrderDay(z)),
     expectedDelivery: defaultDelivery(z.iso, !(isOrderDay(z))),
-    lines: sug.lines.map(l => ({codeId:l.codeId, qty:l.qty, usage:l.usage, low:l.low}))
+    lines: sug.lines.map(l => ({codeId:l.codeId, qty:l.qty, usage:l.usage, low:l.low, unit:l.unit||"box"}))
   };
   return draftOrder;
 }
@@ -635,37 +963,36 @@ function ensureDraft(z){
 function renderOrder(z){
   const d = ensureDraft(z);
   const sugMeta = suggestOrder(d.siteId);
-  const sites = S.sites;
-  const siteSel = sites.length>1 ? `<div class="field"><label>Site</label>
-    <select data-act="order-site">${sites.map(s=>`<option value="${esc(s.id)}" ${s.id===d.siteId?'selected':''}>${esc(s.name)}</option>`).join('')}</select>
-  </div>` : '';
   const lines = d.lines.map(l => {
     const c = codeById(l.codeId);
-    if (!c) return '';
+    if (!c) return "";
     const hint = [];
-    if (l.usage) hint.push('used '+l.usage+' since last delivery');
-    if (l.low) hint.push('low by '+l.low);
+    if (l.usage) hint.push("used "+l.usage+" since last delivery");
+    if (l.low) hint.push("low by "+l.low);
+    const u = lineUnit(l);
     return `<div class="line">
-      <div class="grow"><div class="code">${esc(c.code)}</div><div class="muted">${esc(c.name||c.unit)}${hint.length?' · '+esc(hint.join(', ')):''}</div></div>
-      <div class="stepper">
-        <button type="button" data-act="order-qty" data-dir="-1" data-cid="${esc(c.id)}">−</button>
-        <div class="q">${esc(l.qty)}</div>
-        <button type="button" data-act="order-qty" data-dir="1" data-cid="${esc(c.id)}">+</button>
+      <div class="grow"><div class="code">${esc(displayCode(c))} ${kclBadge(c)}</div><div class="muted">${esc((c.name||"")+(hint.length?" · "+hint.join(", "):""))}</div></div>
+      <div class="unitpair">
+        <div class="stepper">
+          <button type="button" data-act="order-qty" data-dir="-1" data-cid="${esc(c.id)}">−</button>
+          <div class="q">${esc(l.qty)}</div>
+          <button type="button" data-act="order-qty" data-dir="1" data-cid="${esc(c.id)}">+</button>
+        </div>
+        ${unitToggle("order-unit", {cid:c.id}, u)}
       </div>
       <button class="btn ghost" data-act="order-remove" data-cid="${esc(c.id)}" aria-label="Remove">✕</button>
     </div>`;
-  }).join('') || `<div class="muted">No suggested lines. Add a code, or log today’s usage first.</div>`;
-  const since = sugMeta.last ? 'Usage counted since last delivery ('+shortDate(sugMeta.last)+').' : 'No delivery logged yet — suggestions use all recorded usage plus low stock.';
+  }).join("") || `<div class="muted">No suggested lines. Add a code, or log today’s usage first.</div>`;
+  const since = sugMeta.last ? "Usage counted since last delivery ("+shortDate(sugMeta.last)+")." : "No delivery logged yet — suggestions use all recorded usage plus low stock.";
   const sent = orderSentOn(z.iso);
   return `
-    ${siteSel}
     <div class="card">
-      <label class="row" style="gap:8px"><input type="checkbox" data-act="urgent" ${d.urgent?'checked':''}> Urgent order</label>
+      <label class="row" style="gap:8px"><input type="checkbox" data-act="urgent" ${d.urgent?"checked":""}> Urgent order</label>
       <div class="field"><label>Expected delivery</label>
         <input type="date" data-act="delivery" value="${esc(d.expectedDelivery)}">
         <p class="muted">${esc(prettyDate(d.expectedDelivery))} (Australia/Sydney)</p>
       </div>
-      <p class="muted">${esc(since)} Lines are sorted by this site’s most-used codes.</p>
+      <p class="muted">${esc(since)} Lines are sorted by this site’s most-used codes. WhatsApp shows box or ea.</p>
     </div>
     <div class="card"><h2>To order</h2>${lines}</div>
     <div class="btnrow">
@@ -677,43 +1004,45 @@ function renderOrder(z){
       <button class="btn primary" data-act="order-share">Share to WhatsApp</button>
     </div>
     <div class="btnrow">
-      <button class="btn ok block" data-act="order-send" ${sent?'disabled':''}>${sent?'Already marked sent today':'Mark as sent'}</button>
+      <button class="btn ok block" data-act="order-send" ${sent?"disabled":""}>${sent?"Already marked sent today":"Mark as sent"}</button>
     </div>
     ${renderPastOrders()}
   `;
 }
 function renderPastOrders(){
-  if (!S.orders.length) return '';
-  const rows = [...S.orders].reverse().slice(0,8).map(o => {
+  const sid = currentSiteId();
+  const list = S.orders.filter(o => !o.siteId || o.siteId===sid);
+  if (!list.length) return "";
+  const rows = [...list].reverse().slice(0,8).map(o => {
     const n = (o.lines||[]).reduce((s,l)=>s+(Number(l.qty)||0),0);
-    return `<div class="line"><div class="grow"><div>${esc(prettyDate(o.sentDate||o.date))}${o.urgent?' · urgent':''}</div>
-      <div class="muted">${(o.lines||[]).length} lines · ${n} EA · delivery ${esc(shortDate(o.expectedDelivery))}</div></div></div>`;
-  }).join('');
+    return `<div class="line"><div class="grow"><div>${esc(prettyDate(o.sentDate||o.date))}${o.urgent?" · urgent":""}</div>
+      <div class="muted">${(o.lines||[]).length} lines · ${n} items · delivery ${esc(shortDate(o.expectedDelivery))}</div></div></div>`;
+  }).join("");
   return `<h3>Recent orders</h3><div class="card">${rows}</div>`;
 }
 
 function orderMessage(d){
-  const name = (S.settings.partnerName||'').trim();
-  const title = d.urgent ? 'URGENT stock order' : 'Stock order';
+  const name = (S.settings.partnerName||"").trim();
+  const title = d.urgent ? "URGENT stock order" : "Stock order";
   const site = siteById(d.siteId);
   const lines = d.lines.map(l => {
     const c = codeById(l.codeId);
-    if (!c) return '';
-    const nm = c.name ? ' '+c.name : '';
-    return c.code + nm + ' x ' + l.qty + ' ' + (c.unit||'EA');
+    if (!c) return "";
+    const label = (c.tickOnly || !c.code) ? (c.name||"") : (c.code + (c.name?" "+c.name:""));
+    return label + " x " + l.qty + " " + lineUnit(l);
   }).filter(Boolean);
   const parts = [
     title,
     prettyDate(d.date),
-    'Delivery: ' + prettyDate(d.expectedDelivery)
+    "Delivery: " + prettyDate(d.expectedDelivery)
   ];
-  if (site && site.name && site.name !== 'Main' && S.sites.length>1) parts.push('Site: ' + site.name);
-  parts.push('');
-  parts.push(lines.join('\n') || '(no lines)');
-  parts.push('');
-  parts.push(lines.length + (lines.length===1?' line':' lines'));
-  if (name) parts.push('For ' + name);
-  return parts.join('\n');
+  if (site && site.name) parts.push("Site: " + site.name);
+  parts.push("");
+  parts.push(lines.join("\n") || "(no lines)");
+  parts.push("");
+  parts.push(lines.length + (lines.length===1?" line":" lines"));
+  if (name) parts.push("For " + name);
+  return parts.join("\n");
 }
 
 function renderMore(z){
@@ -723,51 +1052,54 @@ function renderMore(z){
       <a class="btn primary" href="#history" style="text-decoration:none;display:inline-flex;align-items:center">History & rankings</a>
       <a class="btn" href="#setup" style="text-decoration:none;display:inline-flex;align-items:center">Setup</a>
     </div>
-    ${route.page==='more' ? renderHistory(z, pop) : ''}
-    ${route.page==='history' ? renderHistory(z, pop) : ''}
+    ${route.page==="more" ? renderHistory(z, pop) : ""}
+    ${route.page==="history" ? renderHistory(z, pop) : ""}
   `;
 }
 
 function renderHistory(z, pop){
-  const maxOverall = Math.max(1, ...Object.values(pop.overall).map(x=>x.qty));
-  const overall = rankedIds(pop.overall, []).map(id => codeById(id)).filter(Boolean);
-  function rankBlock(title, bag){
+  function rankBlock(title, bag, allowSeed){
     const ids = rankedIds(bag, []);
-    if (!ids.length) return `<p class="muted">No usage yet.</p>`;
-    const max = Math.max(1, ...ids.map(id => (bag[id]||{}).qty||0));
-    return ids.slice(0,15).map((id,i) => {
-      const c = codeById(id); if (!c) return '';
+    const visible = ids.filter(id => {
+      const st = bag[id]||{};
+      return (st.qty||0)>0 || (st.hits||0)>0 || (allowSeed && (st.seed||0)>0);
+    });
+    if (!visible.length) return `<p class="muted">No usage yet.</p>`;
+    const max = Math.max(1, ...visible.map(id => (bag[id]||{}).qty||0));
+    return visible.slice(0,15).map((id,i) => {
+      const c = codeById(id); if (!c) return "";
       const st = bag[id];
       const pct = Math.round((st.qty||0)/max*100);
+      const qtyLabel = (st.qty||0) ? String(st.qty) : "notes";
       return `<div class="rank"><span class="muted" style="width:1.2em">${i+1}</span>
-        <div class="grow"><div class="code">${esc(c.code)} ${esc(c.name||'')}</div>
+        <div class="grow"><div class="code">${esc(displayCode(c))} ${esc(c.name||"")}</div>
           <div class="bar"><span style="width:${pct}%"></span></div></div>
-        <span class="muted">${st.qty}</span></div>`;
-    }).join('');
+        <span class="muted">${esc(qtyLabel)}</span></div>`;
+    }).join("");
   }
   const siteBlocks = S.sites.map(s => {
-    return `<div class="card"><h2>${esc(s.name)} — most used</h2>${rankBlock(s.name, pop.bySite[s.id]||{})}</div>`;
-  }).join('');
+    return `<div class="card"><h2>${esc(s.name)} — most used</h2>${rankBlock(s.name, pop.bySite[s.id]||{}, s.id===SITE_CH)}</div>`;
+  }).join("");
   const wardBlocks = enabledWards().map(w => {
     const bag = pop.byWard[w.id]||{};
-    if (!Object.keys(bag).length) return '';
-    return `<div class="card"><h2>${esc(w.name)}</h2>${rankBlock(w.name, bag)}</div>`;
-  }).join('') || `<div class="card muted">No per-ward usage yet.</div>`;
+    if (!Object.keys(bag).length) return "";
+    return `<div class="card"><h2>${esc(w.name)}</h2>${rankBlock(w.name, bag, false)}</div>`;
+  }).join("") || `<div class="card muted">No per-ward usage yet.</div>`;
 
   const days = Object.keys(S.rounds).sort().reverse().slice(0,14);
   const dayRows = days.map(day => {
     const r = S.rounds[day];
     let n=0, wards=0;
     Object.values(r.wards||{}).forEach(e => {
-      if ((e.lines||[]).length || e.status==='nothing' || e.status==='checked') wards++;
+      if ((e.lines||[]).length || e.status==="nothing" || e.status==="checked") wards++;
       n += (e.lines||[]).reduce((s,l)=>s+usageQty(l.qty),0);
     });
     return `<div class="line"><div class="grow"><div>${esc(prettyDate(day))}</div><div class="muted">${wards} wards · ${n} units logged</div></div></div>`;
-  }).join('') || `<p class="muted">No rounds recorded yet.</p>`;
+  }).join("") || `<p class="muted">No rounds recorded yet.</p>`;
 
   return `
     <h3>Overall popularity</h3>
-    <div class="card">${overall.length?rankBlock('Overall', pop.overall):'<p class="muted">Rankings fill in as you tick codes on the round and trolleys.</p>'}</div>
+    <div class="card">${rankBlock("Overall", pop.overall, true)}</div>
     <h3>Per site</h3>
     ${siteBlocks}
     <h3>Per ward</h3>
@@ -779,37 +1111,39 @@ function renderHistory(z, pop){
 }
 
 function renderSetup(){
-  const wards = [...S.wards].sort((a,b)=>a.order-b.order);
+  const sid = currentSiteId();
+  const site = siteById(sid);
+  const wards = S.wards.filter(w => w.siteId===sid).sort((a,b)=>a.order-b.order);
   const wardRows = wards.map((w,i) => {
     return `<div class="setup-item">
-      <input type="checkbox" data-act="ward-on" data-id="${esc(w.id)}" ${w.enabled?'checked':''} aria-label="On the round">
+      <input type="checkbox" data-act="ward-on" data-id="${esc(w.id)}" ${w.enabled?"checked":""} aria-label="On the round">
       <div class="grow"><input class="search" style="margin:0" data-act="ward-name" data-id="${esc(w.id)}" value="${esc(w.name)}"></div>
-      ${S.sites.length>1?`<select data-act="ward-site" data-id="${esc(w.id)}">${S.sites.map(s=>`<option value="${esc(s.id)}" ${s.id===w.siteId?'selected':''}>${esc(s.name)}</option>`).join('')}</select>`:''}
-      <button class="btn ghost" data-act="ward-move" data-id="${esc(w.id)}" data-dir="-1" ${i===0?'disabled':''} aria-label="Move up">↑</button>
-      <button class="btn ghost" data-act="ward-move" data-id="${esc(w.id)}" data-dir="1" ${i===wards.length-1?'disabled':''} aria-label="Move down">↓</button>
+      <button class="btn ghost" data-act="ward-move" data-id="${esc(w.id)}" data-dir="-1" ${i===0?"disabled":""} aria-label="Move up">↑</button>
+      <button class="btn ghost" data-act="ward-move" data-id="${esc(w.id)}" data-dir="1" ${i===wards.length-1?"disabled":""} aria-label="Move down">↓</button>
     </div>`;
-  }).join('');
-  const codeRows = S.codes.map(c => {
+  }).join("");
+  const codeRows = siteCodes(sid).map(c => {
     return `<div class="setup-item" style="flex-wrap:wrap">
-      <div class="grow" style="min-width:90px"><label class="muted">Code</label>
-        <input class="search" style="margin:0" data-act="code-code" data-id="${esc(c.id)}" value="${esc(c.code)}"></div>
+      <div class="grow" style="min-width:90px"><label class="muted">${c.tickOnly?"Item":"Code"}</label>
+        <input class="search" style="margin:0" data-act="code-code" data-id="${esc(c.id)}" value="${esc(c.tickOnly?c.name:c.code)}" ${c.tickOnly?"disabled":""}></div>
       <div class="grow" style="min-width:120px"><label class="muted">Name</label>
         <input class="search" style="margin:0" data-act="code-name" data-id="${esc(c.id)}" value="${esc(c.name)}" placeholder="Optional"></div>
       <div style="width:76px"><label class="muted">Par</label>
         <input class="search" style="margin:0" type="number" min="0" inputmode="numeric" data-act="code-par" data-id="${esc(c.id)}" value="${esc(c.par||0)}"></div>
+      ${c.kcl?'<span class="chip kcl">KCl</span>':''}${c.note?`<span class="shelfnote">${esc(c.note)}</span>`:""}
     </div>`;
-  }).join('');
-  const siteRows = S.sites.map(s => `<div class="setup-item">
-    <input class="search grow" style="margin:0" data-act="site-name" data-id="${esc(s.id)}" value="${esc(s.name)}">
-    ${S.sites.length>1?`<button class="btn ghost danger" data-act="site-del" data-id="${esc(s.id)}">Remove</button>`:''}
-  </div>`).join('');
+  }).join("");
+  const siteRows = S.sites.map(x => `<div class="setup-item">
+    <input class="search grow" style="margin:0" data-act="site-name" data-id="${esc(x.id)}" value="${esc(x.name)}">
+    ${S.sites.length>1?`<button class="btn ghost danger" data-act="site-del" data-id="${esc(x.id)}">Remove</button>`:""}
+  </div>`).join("");
   return `
     <div class="card">
       <h2>WhatsApp</h2>
       <div class="field"><label>Recipient name</label>
-        <input data-act="set-partner" value="${esc(S.settings.partnerName||'')}" placeholder="Recipient name"></div>
+        <input data-act="set-partner" value="${esc(S.settings.partnerName||"")}" placeholder="Recipient name"></div>
       <div class="field"><label>Mobile number (optional)</label>
-        <input data-act="set-wa" value="${esc(S.settings.waNumber||'')}" inputmode="tel" placeholder="Include country code, numbers only">
+        <input data-act="set-wa" value="${esc(S.settings.waNumber||"")}" inputmode="tel" placeholder="Include country code, numbers only">
         <p class="muted">Leave blank to pick the chat yourself when you share. No number is stored in the app unless you type one here.</p>
       </div>
       <div class="btnrow">
@@ -817,17 +1151,17 @@ function renderSetup(){
       </div>
     </div>
     <div class="card"><h2>Sites</h2>
-      <p class="muted">Use more than one site if you cover more than one workplace. Rankings and order suggestions are tracked per site.</p>
+      <p class="muted">Switch site with the toggle at the top. Each site has its own codes, areas, stock and order list.</p>
       ${siteRows}
       <div class="btnrow"><button class="btn" data-act="site-add">Add site</button></div>
     </div>
-    <div class="card"><h2>Wards</h2>
+    <div class="card"><h2>Wards — ${esc(site?site.name:"this site")}</h2>
       <p class="muted">Tick to include on the daily round. Use the arrows to set the walking order.</p>
       ${wardRows}
       <div class="btnrow"><button class="btn" data-act="ward-add">Add ward</button></div>
     </div>
-    <div class="card"><h2>Codes</h2>
-      <p class="muted">Names are optional — add them when you like. Units are EA.</p>
+    <div class="card"><h2>Codes — ${esc(site?site.name:"this site")}</h2>
+      <p class="muted">Counts default to boxes. Tap box/ea beside a count for single packets. Names are optional.</p>
       ${codeRows}
       <div class="btnrow"><button class="btn" data-act="code-add">Add code</button></div>
     </div>
@@ -847,9 +1181,8 @@ function brandFoot(){
   return `<p class="brandfoot"><img src="icons/autoprod-logo-64.png" alt="">by Autoprod · v${esc(VERSION)}</p>`;
 }
 
-/* ---------------- actions ---------------- */
 function openWard(id){
-  location.hash = 'round/' + encodeURIComponent(id);
+  location.hash = "round/" + encodeURIComponent(id);
 }
 function addCodeToWard(wid, cid){
   const r = todayRound();
@@ -859,8 +1192,8 @@ function addCodeToWard(wid, cid){
     const n = qtyNum(line.qty);
     line.qty = (n==null ? 1 : n+1);
   } else {
-    e.lines.push({codeId:cid, qty:1});
-    if (e.status==='nothing') e.status='pending';
+    e.lines.push({codeId:cid, qty:1, unit:"box"});
+    if (e.status==="nothing") e.status="pending";
   }
   save(); render();
 }
@@ -870,11 +1203,18 @@ function changeQty(wid, cid, dir){
   if (!line) return;
   const n = qtyNum(line.qty);
   if (dir<0){
-    if (n==null || n<=1) line.qty = '';
+    if (n==null || n<=1) line.qty = "";
     else line.qty = n-1;
   } else {
     line.qty = (n==null ? 1 : n+1);
   }
+  save(); render();
+}
+function toggleLineUnit(wid, cid){
+  const e = wardEntry(todayRound(), wid);
+  const line = e.lines.find(l => l.codeId===cid);
+  if (!line) return;
+  line.unit = lineUnit(line)==="ea" ? "box" : "ea";
   save(); render();
 }
 function removeLine(wid, cid){
@@ -885,17 +1225,17 @@ function removeLine(wid, cid){
 function markWard(wid, status){
   const e = wardEntry(todayRound(), wid);
   e.status = status;
-  if (status==='nothing') e.lines = [];
+  if (status==="nothing") e.lines = [];
   save();
-  if (status==='checked' || status==='nothing'){
+  if (status==="checked" || status==="nothing"){
     const wards = enabledWards();
     const i = wards.findIndex(w => w.id===wid);
     const next = wards.slice(i+1).find(w => {
       const x = todayRound().wards[w.id];
-      return !x || x.status==='pending';
+      return !x || x.status==="pending";
     });
     if (next){ openWard(next.id); return; }
-    location.hash = 'round';
+    location.hash = "round";
     return;
   }
   render();
@@ -905,7 +1245,7 @@ function tickItem(wid, cid){
   if (!S.trolley[day]) S.trolley[day] = {};
   const key = tickKey(day, wid, cid);
   S.trolley[day][key] = !S.trolley[day][key];
-  save(); render(); // live refresh of rankings display
+  save(); render();
 }
 function changeStock(cid, dir){
   const c = codeById(cid); if (!c) return;
@@ -916,14 +1256,19 @@ function changeStock(cid, dir){
 
 function rebuildDraftKeepEdits(z, siteId){
   const prev = {};
-  if (draftOrder) draftOrder.lines.forEach(l => { prev[l.codeId]=l.qty; });
+  if (draftOrder) draftOrder.lines.forEach(l => { prev[l.codeId]={qty:l.qty, unit:lineUnit(l)}; });
   const sug = suggestOrder(siteId);
   draftOrder = {
     date: z.iso,
     siteId,
     urgent: draftOrder ? draftOrder.urgent : !isOrderDay(z),
     expectedDelivery: draftOrder && draftOrder.siteId===siteId ? draftOrder.expectedDelivery : defaultDelivery(z.iso, draftOrder?draftOrder.urgent:!isOrderDay(z)),
-    lines: sug.lines.map(l => ({codeId:l.codeId, qty: prev[l.codeId]!=null?prev[l.codeId]:l.qty, usage:l.usage, low:l.low}))
+    lines: sug.lines.map(l => ({
+      codeId:l.codeId,
+      qty: prev[l.codeId]!=null?prev[l.codeId].qty:l.qty,
+      usage:l.usage, low:l.low,
+      unit: prev[l.codeId]!=null?prev[l.codeId].unit:(l.unit||"box")
+    }))
   };
 }
 
@@ -934,124 +1279,133 @@ function copyText(text){
   return Promise.resolve(fallbackCopy(text));
 }
 function fallbackCopy(text){
-  const ta = document.createElement('textarea');
+  const ta = document.createElement("textarea");
   ta.value = text; document.body.appendChild(ta); ta.select();
   let ok=false;
-  try{ ok = document.execCommand('copy'); }catch(e){}
+  try{ ok = document.execCommand("copy"); }catch(e){}
   ta.remove();
   return ok;
 }
 function waLink(text){
-  const digits = String(S.settings.waNumber||'').replace(/\D+/g,'');
-  const q = 'text=' + encodeURIComponent(text);
-  return digits ? ('https://wa.me/' + digits + '?' + q) : ('https://wa.me/?' + q);
+  const digits = String(S.settings.waNumber||"").replace(/\D+/g,"");
+  const q = "text=" + encodeURIComponent(text);
+  return digits ? ("https://wa.me/" + digits + "?" + q) : ("https://wa.me/?" + q);
 }
 
 function exportBackup(){
   const payload = {
-    format: 'ward-run-backup',
-    version: 1,
+    format: "ward-run-backup",
+    version: 2,
     exportedAt: new Date().toISOString(),
     data: S
   };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
-  const a = document.createElement('a');
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:"application/json"});
+  const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = 'ward-run-backup-' + zonedNow().iso + '.json';
+  a.download = "ward-run-backup-" + zonedNow().iso + ".json";
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
-  toast('Backup downloaded');
+  toast("Backup downloaded");
 }
 function importBackup(file){
   const reader = new FileReader();
   reader.onload = () => {
     try{
       const obj = JSON.parse(String(reader.result));
-      if (!obj || obj.format!=='ward-run-backup' || !obj.data) throw new Error('Not a Ward Run backup');
-      if (!confirm('Replace all data on this phone with the backup? This cannot be undone.')) return;
+      if (!obj || obj.format!=="ward-run-backup" || !obj.data) throw new Error("Not a Ward Run backup");
+      if (!confirm("Replace all data on this phone with the backup? This cannot be undone.")) return;
       S = obj.data;
       migrate(S);
       draftOrder = null;
       save(); render();
-      toast('Backup imported');
+      toast("Backup imported");
     }catch(e){
-      toast('Could not import that file');
+      toast("Could not import that file");
     }
   };
   reader.readAsText(file);
 }
 
 function promptDlg(title, fields, onOk){
-  const dlg = document.getElementById('dlg');
+  const dlg = document.getElementById("dlg");
   const body = fields.map((f,i) => `<div class="field"><label>${esc(f.label)}</label>
-    <input id="dlg-f${i}" value="${esc(f.value||'')}" placeholder="${esc(f.placeholder||'')}" ${f.attr||''}></div>`).join('');
+    <input id="dlg-f${i}" value="${esc(f.value||"")}" placeholder="${esc(f.placeholder||"")}" ${f.attr||""}></div>`).join("");
   dlg.innerHTML = `<h2 id="dlgTitle">${esc(title)}</h2>${body}
     <div class="btnrow"><button class="btn" data-dlg="cancel">Cancel</button>
     <button class="btn primary" data-dlg="ok">Save</button></div>`;
-  const cancel = () => { dlg.close(); dlg.innerHTML=''; };
-  dlg.querySelector('[data-dlg="cancel"]').onclick = cancel;
-  dlg.querySelector('[data-dlg="ok"]').onclick = () => {
-    const values = fields.map((_,i) => dlg.querySelector('#dlg-f'+i).value);
+  const cancel = () => { dlg.close(); dlg.innerHTML=""; };
+  dlg.querySelector("[data-dlg=cancel]").onclick = cancel;
+  dlg.querySelector("[data-dlg=ok]").onclick = () => {
+    const values = fields.map((_,i) => dlg.querySelector("#dlg-f"+i).value);
     cancel();
     onOk(values);
   };
   dlg.showModal();
-  const first = dlg.querySelector('input');
+  const first = dlg.querySelector("input");
   if (first) first.focus();
 }
 
 function maybeNotify(z){
-  if (!('Notification' in window) || Notification.permission!=='granted') return;
+  if (!("Notification" in window) || Notification.permission!=="granted") return;
   if (!isOrderDay(z) || !beforeCutoff(z) || orderSentOn(z.iso)) return;
-  const key = 'ward-run-notified-'+z.iso;
+  const key = "ward-run-notified-"+z.iso;
   if (sessionStorage.getItem(key)) return;
   try{
-    new Notification('Ward Run', {
-      body: 'Send today’s restock list before '+(S.settings.orderHour||11)+':00.',
-      icon: 'icons/icon-192.png',
-      tag: 'ward-run-order-day'
+    new Notification("Ward Run", {
+      body: "Send today’s restock list before "+(S.settings.orderHour||11)+":00.",
+      icon: "icons/icon-192.png",
+      tag: "ward-run-order-day"
     });
-    sessionStorage.setItem(key,'1');
+    sessionStorage.setItem(key,"1");
   }catch(e){}
 }
 
-document.addEventListener('click', (ev) => {
-  const b = ev.target.closest('[data-act]');
+function newCode(code, name, siteId){
+  return {id:"c-"+slug(code||name||"x")+"-"+uid(""), code:code||"", name:name||"", note:"", kcl:false, tickOnly:!code, unit:"box", par:0, stock:0, siteId:siteId||currentSiteId(), seed:0};
+}
+
+document.addEventListener("click", (ev) => {
+  const b = ev.target.closest("[data-act]");
   if (!b) return;
   const act = b.dataset.act;
   const z = zonedNow();
 
-  if (act==='back'){
-    if (route.page==='round-ward') location.hash='round';
-    else location.hash='more';
+  if (act==="back"){
+    if (route.page==="round-ward") location.hash="round";
+    else location.hash="more";
     return;
   }
-  if (act==='open-ward') openWard(b.dataset.id);
-  if (act==='add-code') addCodeToWard(b.dataset.wid, b.dataset.cid);
-  if (act==='qty') changeQty(b.dataset.wid, b.dataset.cid, Number(b.dataset.dir));
-  if (act==='remove-line') removeLine(b.dataset.wid, b.dataset.cid);
-  if (act==='mark') markWard(b.dataset.wid, b.dataset.status);
-  if (act==='tick') tickItem(b.dataset.wid, b.dataset.cid);
-  if (act==='stock') changeStock(b.dataset.cid, Number(b.dataset.dir));
-  if (act==='other-code'){
-    promptDlg('Add a code', [{label:'Code', value:'', placeholder:'e.g. 7113'}], ([code]) => {
-      code = String(code||'').trim();
+  if (act==="set-site") setCurrentSite(b.dataset.id);
+  if (act==="open-ward") openWard(b.dataset.id);
+  if (act==="add-code") addCodeToWard(b.dataset.wid, b.dataset.cid);
+  if (act==="qty") changeQty(b.dataset.wid, b.dataset.cid, Number(b.dataset.dir));
+  if (act==="line-unit") toggleLineUnit(b.dataset.wid, b.dataset.cid);
+  if (act==="remove-line") removeLine(b.dataset.wid, b.dataset.cid);
+  if (act==="mark") markWard(b.dataset.wid, b.dataset.status);
+  if (act==="tick") tickItem(b.dataset.wid, b.dataset.cid);
+  if (act==="stock") changeStock(b.dataset.cid, Number(b.dataset.dir));
+  if (act==="other-code"){
+    const ward = wardById(b.dataset.wid);
+    const sid = ward ? ward.siteId : currentSiteId();
+    promptDlg("Add a code", [{label:"Code", value:"", placeholder:"e.g. 7113"}], ([code]) => {
+      code = String(code||"").trim();
       if (!code) return;
-      let c = S.codes.find(x => x.code.toLowerCase()===code.toLowerCase());
+      let c = siteCodes(sid).find(x => !x.tickOnly && x.code.toLowerCase()===code.toLowerCase())
+        || siteCodes(sid).find(x => displayCode(x).toLowerCase()===code.toLowerCase());
       if (!c){
-        c = {id:'c-'+slug(code)+'-'+uid(''), code, name:'', unit:'EA', par:0, stock:0};
+        c = newCode(code, "", sid);
         S.codes.push(c);
       }
       addCodeToWard(b.dataset.wid, c.id);
     });
   }
-  if (act==='urgent'){
+  if (act==="urgent"){
     const d = ensureDraft(z);
     d.urgent = b.checked;
     d.expectedDelivery = defaultDelivery(z.iso, d.urgent);
     render();
   }
-  if (act==='order-qty'){
+  if (act==="order-qty"){
     const d = ensureDraft(z);
     const line = d.lines.find(l => l.codeId===b.dataset.cid);
     if (!line) return;
@@ -1059,35 +1413,44 @@ document.addEventListener('click', (ev) => {
     if (line.qty===0) d.lines = d.lines.filter(l => l.codeId!==b.dataset.cid);
     render();
   }
-  if (act==='order-remove'){
+  if (act==="order-unit"){
+    const d = ensureDraft(z);
+    const line = d.lines.find(l => l.codeId===b.dataset.cid);
+    if (!line) return;
+    line.unit = lineUnit(line)==="ea" ? "box" : "ea";
+    render();
+  }
+  if (act==="order-remove"){
     const d = ensureDraft(z);
     d.lines = d.lines.filter(l => l.codeId!==b.dataset.cid);
     render();
   }
-  if (act==='order-add'){
-    promptDlg('Add to order', [{label:'Code', placeholder:'e.g. 7113'},{label:'Quantity', value:'1', attr:'inputmode="numeric"'}], ([code, qty]) => {
-      code = String(code||'').trim();
+  if (act==="order-add"){
+    const sid = currentSiteId();
+    promptDlg("Add to order", [{label:"Code", placeholder:"e.g. 7113"},{label:"Quantity", value:"1", attr:"inputmode=\"numeric\""}], ([code, qty]) => {
+      code = String(code||"").trim();
       const q = Math.max(0, Number(qty)||0);
       if (!code || !q) return;
-      let c = S.codes.find(x => x.code.toLowerCase()===code.toLowerCase());
-      if (!c){ c = {id:'c-'+slug(code)+'-'+uid(''), code, name:'', unit:'EA', par:0, stock:0}; S.codes.push(c); save(); }
+      let c = siteCodes(sid).find(x => !x.tickOnly && x.code.toLowerCase()===code.toLowerCase())
+        || siteCodes(sid).find(x => displayCode(x).toLowerCase()===code.toLowerCase());
+      if (!c){ c = newCode(code, "", sid); S.codes.push(c); save(); }
       const d = ensureDraft(z);
       const line = d.lines.find(l => l.codeId===c.id);
-      if (line) line.qty = q; else d.lines.push({codeId:c.id, qty:q, usage:0, low:0});
+      if (line) line.qty = q; else d.lines.push({codeId:c.id, qty:q, usage:0, low:0, unit:"box"});
       render();
     });
   }
-  if (act==='order-refresh'){
+  if (act==="order-refresh"){
     const d = ensureDraft(z);
     rebuildDraftKeepEdits(z, d.siteId);
     render();
-    toast('Suggestions recalculated');
+    toast("Suggestions recalculated");
   }
-  if (act==='order-copy'){
+  if (act==="order-copy"){
     const text = orderMessage(ensureDraft(z));
-    copyText(text).then(ok => toast(ok ? 'Message copied' : 'Copy failed — long-press to copy'));
+    copyText(text).then(ok => toast(ok ? "Message copied" : "Copy failed — long-press to copy"));
   }
-  if (act==='order-share'){
+  if (act==="order-share"){
     const text = orderMessage(ensureDraft(z));
     const url = waLink(text);
     if (navigator.share){
@@ -1096,31 +1459,32 @@ document.addEventListener('click', (ev) => {
       window.location.href = url;
     }
   }
-  if (act==='order-send'){
+  if (act==="order-send"){
     const d = ensureDraft(z);
-    if (!d.lines.length){ toast('Add at least one line'); return; }
+    if (!d.lines.length){ toast("Add at least one line"); return; }
     S.orders.push({
-      id: uid('o-'),
+      id: uid("o-"),
       date: d.date,
       sentAt: new Date().toISOString(),
       sentDate: z.iso,
       urgent: !!d.urgent,
       expectedDelivery: d.expectedDelivery,
       siteId: d.siteId,
-      lines: d.lines.map(l => ({codeId:l.codeId, qty:l.qty})),
+      lines: d.lines.map(l => ({codeId:l.codeId, qty:l.qty, unit:lineUnit(l)})),
       message: orderMessage(d)
     });
     save();
     render();
-    toast('Order logged · delivery ' + shortDate(d.expectedDelivery));
+    toast("Order logged · delivery " + shortDate(d.expectedDelivery));
   }
-  if (act==='export') exportBackup();
-  if (act==='import'){
-    const inp = document.getElementById('import-file');
+  if (act==="export") exportBackup();
+  if (act==="import"){
+    const inp = document.getElementById("import-file");
     if (inp) inp.click();
   }
-  if (act==='ward-move'){
-    const list = [...S.wards].sort((a,b)=>a.order-b.order);
+  if (act==="ward-move"){
+    const sid = currentSiteId();
+    const list = S.wards.filter(w => w.siteId===sid).sort((a,b)=>a.order-b.order);
     const i = list.findIndex(w => w.id===b.dataset.id);
     const j = i + Number(b.dataset.dir);
     if (i<0 || j<0 || j>=list.length) return;
@@ -1128,127 +1492,121 @@ document.addEventListener('click', (ev) => {
     list.forEach((w,k)=>w.order=k);
     save(); render();
   }
-  if (act==='ward-add'){
-    promptDlg('Add ward', [{label:'Abbreviation', placeholder:'e.g. 4n'}], ([name]) => {
-      name = String(name||'').trim(); if (!name) return;
-      const id = 'w-'+slug(name)+'-'+uid('');
-      const max = S.wards.reduce((m,w)=>Math.max(m,w.order),-1);
-      S.wards.push({id, name, order:max+1, siteId:(S.sites[0]||{}).id, enabled:true});
+  if (act==="ward-add"){
+    promptDlg("Add ward", [{label:"Abbreviation", placeholder:"e.g. 4n"}], ([name]) => {
+      name = String(name||"").trim(); if (!name) return;
+      const id = "w-"+slug(name)+"-"+uid("");
+      const sid = currentSiteId();
+      const max = S.wards.filter(w=>w.siteId===sid).reduce((m,w)=>Math.max(m,w.order),-1);
+      S.wards.push({id, name, order:max+1, siteId:sid, enabled:true});
       save(); render();
     });
   }
-  if (act==='code-add'){
-    promptDlg('Add code', [{label:'Code'},{label:'Name (optional)'}], ([code,name]) => {
-      code = String(code||'').trim(); if (!code) return;
-      if (S.codes.some(c => c.code.toLowerCase()===code.toLowerCase())){ toast('That code is already on the list'); return; }
-      S.codes.push({id:'c-'+slug(code)+'-'+uid(''), code, name:String(name||'').trim(), unit:'EA', par:0, stock:0});
+  if (act==="code-add"){
+    const sid = currentSiteId();
+    promptDlg("Add code", [{label:"Code"},{label:"Name (optional)"}], ([code,name]) => {
+      code = String(code||"").trim(); if (!code) return;
+      if (siteCodes(sid).some(c => !c.tickOnly && c.code.toLowerCase()===code.toLowerCase())){ toast("That code is already on the list"); return; }
+      S.codes.push(newCode(code, String(name||"").trim(), sid));
       save(); render();
     });
   }
-  if (act==='site-add'){
-    promptDlg('Add site', [{label:'Site name', placeholder:'A short label you choose'}], ([name]) => {
-      name = String(name||'').trim(); if (!name) return;
-      S.sites.push({id:'s-'+uid(''), name});
+  if (act==="site-add"){
+    promptDlg("Add site", [{label:"Site name", placeholder:"A short label you choose"}], ([name]) => {
+      name = String(name||"").trim(); if (!name) return;
+      S.sites.push({id:"s-"+uid(""), name});
       save(); render();
     });
   }
-  if (act==='site-del'){
+  if (act==="site-del"){
     if (S.sites.length<=1) return;
     const fallback = S.sites.find(s => s.id!==b.dataset.id);
     S.wards.forEach(w => { if (w.siteId===b.dataset.id) w.siteId = fallback.id; });
+    S.codes.forEach(c => { if (c.siteId===b.dataset.id) c.siteId = fallback.id; });
     S.sites = S.sites.filter(s => s.id!==b.dataset.id);
+    if (S.settings.currentSiteId===b.dataset.id) S.settings.currentSiteId = fallback.id;
+    draftOrder = null;
     save(); render();
   }
-  if (act==='notify-ask'){
-    if (!('Notification' in window)){ toast('Notifications are not available in this browser'); return; }
+  if (act==="notify-ask"){
+    if (!("Notification" in window)){ toast("Notifications are not available in this browser"); return; }
     Notification.requestPermission().then(p => {
-      toast(p==='granted' ? 'Reminders on for order days' : 'Permission not granted');
+      toast(p==="granted" ? "Reminders on for order days" : "Permission not granted");
       maybeNotify(zonedNow());
     });
   }
 });
 
-document.addEventListener('change', (ev) => {
+document.addEventListener("change", (ev) => {
   const t = ev.target;
   const act = t.dataset && t.dataset.act;
   if (!act) return;
   const z = zonedNow();
-  if (act==='delivery'){ ensureDraft(z).expectedDelivery = t.value; }
-  if (act==='order-site'){
-    const d = ensureDraft(z);
-    d.siteId = t.value;
-    rebuildDraftKeepEdits(z, t.value);
-    render();
-  }
-  if (act==='urgent'){ /* handled in click for checkbox? change also fires */ }
-  if (act==='ward-on'){
+  if (act==="delivery"){ ensureDraft(z).expectedDelivery = t.value; }
+  if (act==="ward-on"){
     const w = wardById(t.dataset.id); if (!w) return;
     w.enabled = t.checked; save(); render();
   }
-  if (act==='ward-site'){
-    const w = wardById(t.dataset.id); if (!w) return;
-    w.siteId = t.value; save(); render();
-  }
-  if (act==='code-par'){
+  if (act==="code-par"){
     const c = codeById(t.dataset.id); if (!c) return;
     c.par = Math.max(0, Number(t.value)||0); save();
   }
 });
 
-document.addEventListener('input', (ev) => {
+document.addEventListener("input", (ev) => {
   const t = ev.target;
   const act = t.dataset && t.dataset.act;
   if (!act) return;
-  if (act==='filter-stock'){
+  if (act==="filter-stock"){
     const q = t.value.trim().toLowerCase();
-    document.querySelectorAll('.stockrow').forEach(row => {
-      row.style.display = !q || (row.dataset.name||'').includes(q) ? '' : 'none';
+    document.querySelectorAll(".stockrow").forEach(row => {
+      row.style.display = !q || (row.dataset.name||"").includes(q) ? "" : "none";
     });
   }
-  if (act==='ward-name'){
+  if (act==="ward-name"){
     const w = wardById(t.dataset.id); if (!w) return;
     w.name = t.value; save();
   }
-  if (act==='code-code'){
-    const c = codeById(t.dataset.id); if (!c) return;
+  if (act==="code-code"){
+    const c = codeById(t.dataset.id); if (!c || c.tickOnly) return;
     c.code = t.value; save();
   }
-  if (act==='code-name'){
+  if (act==="code-name"){
     const c = codeById(t.dataset.id); if (!c) return;
     c.name = t.value; save();
   }
-  if (act==='site-name'){
+  if (act==="site-name"){
     const s = siteById(t.dataset.id); if (!s) return;
-    s.name = t.value; save();
+    s.name = t.value; save(); render();
   }
-  if (act==='set-partner'){ S.settings.partnerName = t.value; save(); }
-  if (act==='set-wa'){ S.settings.waNumber = t.value; save(); }
-  if (act==='code-par'){
+  if (act==="set-partner"){ S.settings.partnerName = t.value; save(); }
+  if (act==="set-wa"){ S.settings.waNumber = t.value; save(); }
+  if (act==="code-par"){
     const c = codeById(t.dataset.id); if (!c) return;
     c.par = Math.max(0, Number(t.value)||0); save();
   }
 });
 
-document.addEventListener('change', (ev) => {
-  if (ev.target && ev.target.id==='import-file' && ev.target.files && ev.target.files[0]){
+document.addEventListener("change", (ev) => {
+  if (ev.target && ev.target.id==="import-file" && ev.target.files && ev.target.files[0]){
     importBackup(ev.target.files[0]);
-    ev.target.value = '';
+    ev.target.value = "";
   }
 });
 
-window.addEventListener('hashchange', () => {
+window.addEventListener("hashchange", () => {
   clearTimeout(toastTimer);
-  document.getElementById('toast').classList.remove('show');
+  document.getElementById("toast").classList.remove("show");
   render();
 });
-window.addEventListener('pageshow', render);
+window.addEventListener("pageshow", render);
 
 load();
-if (!location.hash) location.hash = '#round';
+if (!location.hash) location.hash = "#round";
 else render();
 
-if ('serviceWorker' in navigator && !/e2e=1/.test(location.search)){
-  navigator.serviceWorker.register('sw.js', {scope: './'}).catch(()=>{});
+if ("serviceWorker" in navigator && !/e2e=1/.test(location.search)){
+  navigator.serviceWorker.register("sw.js", {scope: './'}).catch(()=>{});
 }
 })();
 </script>
