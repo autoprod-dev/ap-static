@@ -4,7 +4,6 @@ const PRECACHE = [
   './',
   './index.html',
   './manifest.webmanifest',
-  './robots.txt',
   './icons/favicon-32.png',
   './icons/favicon.ico',
   './icons/apple-touch-icon.png',
