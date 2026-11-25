@@ -760,7 +760,7 @@ async function addFiles(files){
     }catch(e){$('addStatus').textContent='Could not open '+(f.name||'file')+'. Try a photo instead.';}
     drawScans();
   }
-  save();const w=jobs.filter(q=>q.status==='wait').length;if(!/frames used/.test($('addStatus').textContent))$('addStatus').textContent=w?w+' ready to scan.':'';$('bScan').disabled=!w||busy;
+  save();const w=jobs.filter(q=>q.status==='wait').length;if(!/frames (used|picked)/.test($('addStatus').textContent))$('addStatus').textContent=w?w+' ready to scan.':'';$('bScan').disabled=!w||busy;
 }
 function drawScans(){
   $('scans').innerHTML=jobs.map(q=>`<div class="scan" data-id="${q.id}"><img src="${q.thumb}"><div class="t"><b>${esc(q.label)}${q.sub?' · '+esc(q.sub):''}</b>
