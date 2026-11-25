@@ -307,6 +307,9 @@ label.btn{cursor:pointer}
   .skip,nav.tabbar,.appbar,#banners,#toast,#celebrate,#confetti,#scandlg,dialog,.noprint,.gchip,.sitetog,.weeknav,.filt,.btnrow,.btn{display:none !important}
   main{max-width:none;margin:0;padding:0}
   .card{box-shadow:none;border:1px solid #ccc;break-inside:avoid}
+  #report-sheet.card,#day-sheet.card{break-inside:auto;border:0;border-radius:0;padding:0;margin:0;box-shadow:none}
+  .rpt-day{break-inside:avoid}
+  .rpt-total{break-inside:avoid}
   .print-only{display:block !important}
   .rpt{font-size:10pt;line-height:1.25;color:#000}
   .rpt-head h2{font-size:14pt}
@@ -342,7 +345,7 @@ label.btn{cursor:pointer}
 (function(){
 "use strict";
 
-const VERSION = "1.3.0";
+const VERSION = "1.3.1";
 const STORE = "ward-run-v1";
 const TZ = "Australia/Sydney";
 const DOW = {Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6};
