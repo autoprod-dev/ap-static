@@ -237,6 +237,39 @@ nav.tabbar a.on{color:#5b21b6;background:var(--vio-s)}
   *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}
   .pop{animation:none;opacity:1}
 }
+/* ===== v1.2.0 stocktake ===== */
+.scanbtn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:60px;border:0;border-radius:18px;margin:4px 0 12px;
+  background:linear-gradient(135deg,#0f172a,#312e81);color:#fff;font-weight:900;font-size:1.1rem;cursor:pointer;box-shadow:0 8px 20px rgba(49,46,129,.25)}
+.scanbtn span{font-size:1.4rem}
+#scandlg{padding:14px}
+.scanhead{display:flex;align-items:center;justify-content:space-between}
+.scanhead h2{margin:0}
+.scanbox{position:relative;border-radius:16px;overflow:hidden;background:#0f172a;aspect-ratio:4/3;margin:10px 0 6px}
+.scanbox video{width:100%;height:100%;object-fit:cover;display:block}
+.scanaim{position:absolute;left:10%;right:10%;top:35%;bottom:35%;border:3px solid #fbbf24;border-radius:12px;box-shadow:0 0 0 999px rgba(15,23,42,.35)}
+label.btn{cursor:pointer}
+.picklist{max-height:46vh;overflow:auto;margin:6px 0}
+.pickrow{display:block;width:100%;text-align:left;min-height:48px;padding:8px 10px;border:1px solid var(--line);border-radius:12px;background:#fff;margin-bottom:6px;cursor:pointer}
+.var{display:inline-flex;align-items:center;gap:2px;padding:3px 8px;border-radius:99px;font-size:.74rem;font-weight:850;margin:2px 4px 0 0;white-space:nowrap}
+.var small{font-weight:700;opacity:.8}
+.var.short{background:#fee2e2;color:#b91c1c}
+.var.over{background:#fef3c7;color:#b45309}
+.var.ok{background:#dcfce7;color:#15803d}
+.var.nopar{background:#eef2f7;color:#64748b}
+.stockrow.v-short{background:linear-gradient(90deg,#fff1f1,transparent 70%);box-shadow:inset 4px 0 0 #ef4444}
+.stockrow.v-over{background:linear-gradient(90deg,#fff8e6,transparent 70%);box-shadow:inset 4px 0 0 #f59e0b}
+.stockrow.v-ok{background:linear-gradient(90deg,#effcf3,transparent 70%);box-shadow:inset 4px 0 0 #22c55e}
+.stockrow{padding-left:10px;border-radius:8px}
+.stockrow.flash{animation:pulse 1.2s ease}
+.vsum{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.vbox{border-radius:14px;padding:8px 10px}
+.vbox b{display:block;font-size:1.5rem;font-weight:900;line-height:1.1}
+.vbox span{font-size:.76rem;font-weight:800}
+.vbox.short{background:#fee2e2;color:#991b1b}
+.vbox.over{background:#fef3c7;color:#92400e}
+.vbox.ok{background:#dcfce7;color:#166534}
+.vrow{display:flex;align-items:center;flex-wrap:wrap;gap:2px;padding:7px 0;border-bottom:1px solid var(--line)}
+.vrow:last-of-type{border-bottom:0}
 </style>
 </head>
 <body>
@@ -261,6 +294,7 @@ nav.tabbar a.on{color:#5b21b6;background:var(--vio-s)}
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="6" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18" cy="12" r="1.6"/></svg>More</a>
 </nav>
 <dialog id="dlg"></dialog>
+<dialog id="scandlg" aria-label="Barcode scanner"></dialog>
 <noscript><p style="padding:20px">Ward Run needs JavaScript turned on.</p></noscript>
 <script>
 (function(){
@@ -363,6 +397,7 @@ let S = null;
 let route = {page:"round", wardId:null};
 let toastTimer = 0;
 let draftOrder = null;
+let stockQuery = "";
 
 function esc(s){
   return String(s==null?"":s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
@@ -778,6 +813,358 @@ function renderTrophies(z){
       <p class="muted" style="margin:8px 0 0">Best round time: ${bestLines}. Weekends don't break your streak.</p>
     </div>
     <div class="card"><h2>Trophy shelf <span class="chip xp">${got}/${BADGES.length}</span></h2><div class="shelf">${shelf}</div></div>`;
+}
+
+/* ===== v1.2.0 stocktake: barcode scan, variance, manager export ===== */
+const BSTORE = "ward-run-barcodes-v1";
+function bLoad(){ try{ const o = JSON.parse(localStorage.getItem(BSTORE)||"{}"); return (o && o.map && typeof o.map==="object") ? o : {map:{}}; }catch(e){ return {map:{}}; } }
+function bSave(o){ try{ localStorage.setItem(BSTORE, JSON.stringify(o)); }catch(e){} }
+
+function loadVendor(src, globalName){
+  if (window[globalName]) return Promise.resolve(window[globalName]);
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = src; s.async = true;
+    s.onload = () => window[globalName] ? resolve(window[globalName]) : reject(new Error("load"));
+    s.onerror = () => reject(new Error("load"));
+    document.head.appendChild(s);
+  });
+}
+
+/* Match a scanned value to this site's codes: saved link, exact, then contains. */
+function matchScan(raw, siteId){
+  const val = String(raw||"").trim();
+  const up = val.toUpperCase();
+  const digits = val.replace(/\D+/g,"");
+  const list = siteCodes(siteId);
+  const linked = bLoad().map[val];
+  if (linked){ const c = list.find(x => x.id===linked); if (c) return {code:c, how:"saved"}; }
+  const exact = list.filter(c => !c.tickOnly && c.code && (String(c.code).toUpperCase()===up || bareProductCode(c.code)===bareProductCode(up)));
+  if (exact.length===1) return {code:exact[0], how:"exact"};
+  if (exact.length>1) return {candidates:exact};
+  const contains = list.filter(c => {
+    if (c.tickOnly || !c.code) return false;
+    const code = String(c.code).toUpperCase(), bare = bareProductCode(code);
+    if (code.length>=4 && up.includes(code)) return true;
+    if (/^\d{4,}$/.test(bare) && digits.includes(bare)) return true;
+    return false;
+  });
+  if (contains.length===1) return {code:contains[0], how:"contains"};
+  return {candidates:contains};
+}
+
+let scanSession = null;
+function stopScan(){
+  const s = scanSession; scanSession = null;
+  if (!s) return;
+  s.stopped = true;
+  try{ if (s.reader) s.reader.reset(); }catch(e){}
+  try{ if (s.stream) s.stream.getTracks().forEach(t => t.stop()); }catch(e){}
+  clearTimeout(s.timer);
+}
+function closeScanner(){
+  stopScan();
+  const d = document.getElementById("scandlg");
+  if (d && d.open) d.close();
+}
+function scanStatus(msg){ const el = document.getElementById("scan-msg"); if (el) el.textContent = msg; }
+
+/* Decode one still image (photo or test image). */
+async function decodeImageFile(file){
+  const url = URL.createObjectURL(file);
+  try{
+    if ("BarcodeDetector" in window){
+      try{
+        const img = new Image(); img.src = url; await img.decode();
+        const found = await new window.BarcodeDetector().detect(img);
+        if (found && found.length) return found[0].rawValue;
+      }catch(e){}
+    }
+    const Z = await loadVendor("vendor/zxing.min.js", "ZXing");
+    const hints = new Map();
+    hints.set(Z.DecodeHintType.TRY_HARDER, true);
+    const reader = new Z.BrowserMultiFormatReader(hints);
+    const res = await reader.decodeFromImageUrl(url);
+    return res ? res.getText() : "";
+  }finally{
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+}
+
+function openScanner(siteId, onCode, title){
+  const d = document.getElementById("scandlg");
+  d.innerHTML = `<div class="scanhead"><h2>${esc(title||"Scan a barcode")}</h2>
+      <button type="button" class="btn ghost" data-scan="close" aria-label="Close">✕</button></div>
+    <div class="scanbox"><video id="scan-video" playsinline muted></video><div class="scanaim" aria-hidden="true"></div></div>
+    <p class="muted" id="scan-msg" role="status">Starting camera…</p>
+    <div class="btnrow">
+      <label class="btn grow" for="scan-photo">📷 Photo of barcode</label>
+      <input type="file" id="scan-photo" accept="image/*" capture="environment" class="hidden">
+      <button type="button" class="btn grow" data-scan="type">⌨️ Type code</button>
+    </div>`;
+  d.showModal();
+  const done = (raw) => {
+    if (!raw) return;
+    closeScanner();
+    sfx("done"); buzz([20,40,20]);
+    handleScan(raw, siteId, onCode);
+  };
+  d.onclick = (ev) => {
+    const b = ev.target.closest("[data-scan]"); if (!b) return;
+    if (b.dataset.scan==="close") closeScanner();
+    if (b.dataset.scan==="type"){
+      closeScanner();
+      promptDlg("Type a code or barcode", [{label:"Code", placeholder:"e.g. 7113 or barcode digits", attr:"autocomplete=\"off\""}], ([v]) => { v = String(v||"").trim(); if (v) handleScan(v, siteId, onCode); });
+    }
+  };
+  d.onchange = async (ev) => {
+    if (ev.target.id!=="scan-photo" || !ev.target.files || !ev.target.files[0]) return;
+    scanStatus("Reading photo…");
+    try{
+      const v = await decodeImageFile(ev.target.files[0]);
+      if (v) done(v); else scanStatus("No barcode found in that photo. Try closer, flat and in good light, or type the code.");
+    }catch(e){ scanStatus("Could not read that photo. Try again or type the code."); }
+    ev.target.value = "";
+  };
+  d.addEventListener("close", stopScan, {once:true});
+  startCamera(done);
+}
+
+async function startCamera(done){
+  const sess = {stopped:false};
+  scanSession = sess;
+  const video = document.getElementById("scan-video");
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    scanStatus("Camera not available here. Use Photo of barcode or Type code.");
+    return;
+  }
+  let useNative = false;
+  if ("BarcodeDetector" in window){
+    try{
+      const fm = window.BarcodeDetector.getSupportedFormats ? await window.BarcodeDetector.getSupportedFormats() : ["code_128"];
+      useNative = fm && fm.length > 0;
+    }catch(e){ useNative = false; }
+  }
+  try{
+    if (useNative){
+      sess.stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}}, audio:false});
+      if (sess.stopped){ sess.stream.getTracks().forEach(t=>t.stop()); return; }
+      video.srcObject = sess.stream;
+      await video.play().catch(()=>{});
+      scanStatus("Point at the barcode. It scans by itself.");
+      const det = new window.BarcodeDetector();
+      const tick = async () => {
+        if (sess.stopped) return;
+        try{
+          if (video.readyState >= 2){
+            const found = await det.detect(video);
+            if (found && found.length && found[0].rawValue){ done(found[0].rawValue); return; }
+          }
+        }catch(e){}
+        sess.timer = setTimeout(tick, 180);
+      };
+      tick();
+    } else {
+      scanStatus("Loading scanner…");
+      const Z = await loadVendor("vendor/zxing.min.js", "ZXing");
+      if (sess.stopped) return;
+      const hints = new Map();
+      hints.set(Z.DecodeHintType.TRY_HARDER, true);
+      sess.reader = new Z.BrowserMultiFormatReader(hints, 200);
+      scanStatus("Point at the barcode. It scans by itself.");
+      await sess.reader.decodeFromConstraints({video:{facingMode:{ideal:"environment"}}, audio:false}, video, (res) => {
+        if (res && !sess.stopped) done(res.getText());
+      });
+    }
+  }catch(e){
+    scanStatus("Camera blocked or not found. Use Photo of barcode or Type code.");
+  }
+}
+
+function handleScan(raw, siteId, onCode){
+  const m = matchScan(raw, siteId);
+  if (m.code){ onCode(m.code, raw); return; }
+  pickForBarcode(raw, siteId, m.candidates||[], onCode);
+}
+function pickForBarcode(raw, siteId, candidates, onCode){
+  const dlg = document.getElementById("dlg");
+  const list = (candidates.length ? candidates : siteCodes(siteId));
+  const rows = list.map(c => `<button type="button" class="pickrow" data-pick="${esc(c.id)}" data-name="${esc((displayCode(c)+" "+(c.name||"")).toLowerCase())}"><b>${esc(displayCode(c))}</b> <span class="muted">${esc(c.tickOnly?"":c.name||"")}</span></button>`).join("");
+  dlg.innerHTML = `<h2>${candidates.length ? "Which item is this?" : "New barcode"}</h2>
+    <p class="muted">Scanned <b>${esc(raw)}</b>. ${candidates.length ? "It matches more than one code." : "It doesn't match a code yet."} Pick the item to link it, so next time it's found straight away.</p>
+    ${candidates.length ? "" : `<input class="search" id="pick-q" type="search" placeholder="Search codes or names">`}
+    <div class="picklist">${rows}</div>
+    <div class="btnrow"><button class="btn" data-pick-act="new">Add as new code</button><button class="btn ghost" data-pick-act="cancel">Cancel</button></div>`;
+  const close = () => { dlg.close(); dlg.innerHTML = ""; dlg.onclick = null; dlg.oninput = null; };
+  dlg.oninput = (ev) => {
+    if (ev.target.id!=="pick-q") return;
+    const q = ev.target.value.trim().toLowerCase();
+    dlg.querySelectorAll(".pickrow").forEach(r => { r.style.display = !q || r.dataset.name.includes(q) ? "" : "none"; });
+  };
+  dlg.onclick = (ev) => {
+    const p = ev.target.closest("[data-pick]");
+    if (p){
+      const c = codeById(p.dataset.pick); close();
+      if (!c) return;
+      const o = bLoad(); o.map[raw] = c.id; bSave(o);
+      toast("Barcode linked to " + displayCode(c));
+      onCode(c, raw);
+      return;
+    }
+    const a = ev.target.closest("[data-pick-act]");
+    if (!a) return;
+    close();
+    if (a.dataset.pickAct==="new"){
+      promptDlg("Add code for this barcode", [{label:"Code", value:/^\d{4,6}$/.test(raw)?raw:"", placeholder:"e.g. 7113"},{label:"Name (optional)"}], ([code, name]) => {
+        code = String(code||"").trim(); if (!code) return;
+        let c = siteCodes(siteId).find(x => !x.tickOnly && x.code.toLowerCase()===code.toLowerCase());
+        if (!c){ c = newCode(code, String(name||"").trim(), siteId); S.codes.push(c); save(); }
+        const o = bLoad(); o.map[raw] = c.id; bSave(o);
+        onCode(c, raw);
+      });
+    }
+  };
+  if (!dlg.open) dlg.showModal();
+}
+
+/* ---- variance ---- */
+function stockVariance(c){
+  const par = Number(c.par)||0, n = Number(c.stock)||0;
+  if (par <= 0) return {status:"nopar", diff:0, expected:null, counted:n};
+  const diff = n - par;
+  return {status: diff<0 ? "short" : diff>0 ? "over" : "ok", diff, expected:par, counted:n};
+}
+function usualQty(wid, cid, beforeIso){
+  let sum = 0, k = 0;
+  Object.values(S.rounds).forEach(r => {
+    if (r.date >= beforeIso) return;
+    const e = (r.wards||{})[wid];
+    const l = e && (e.lines||[]).find(x => x.codeId===cid);
+    const q = l ? qtyNum(l.qty) : null;
+    if (q!=null){ sum += q; k++; }
+  });
+  return k ? Math.round(sum/k) : null;
+}
+function lineVariance(wid, line, iso){
+  const exp = usualQty(wid, line.codeId, iso);
+  const n = qtyNum(line.qty);
+  if (exp==null || n==null) return {status:"nopar", diff:0, expected:exp, counted:n};
+  const diff = n - exp;
+  return {status: diff<0 ? "short" : diff>0 ? "over" : "ok", diff, expected:exp, counted:n};
+}
+function signed(n){ return (n>0?"+":n<0?"−":"±") + Math.abs(n); }
+function varChip(v, kind){
+  if (v.status==="nopar") return kind==="ward" ? "" : `<span class="var nopar">No par</span>`;
+  const label = v.status==="short" ? "Short" : v.status==="over" ? "Over" : "OK";
+  const ref = kind==="ward" ? "usual " + v.expected : "par " + v.expected;
+  return `<span class="var ${v.status}">${label}${v.status==="ok"?"":" "+signed(v.diff)}<small> · ${esc(ref)}</small></span>`;
+}
+function statusWord(v, kind){
+  if (v.status==="nopar") return kind==="ward" ? "No history" : "No par";
+  return v.status==="short" ? "Short" : v.status==="over" ? "Over" : "OK";
+}
+function varianceSummary(siteId, iso){
+  const store = {short:0, over:0, ok:0, nopar:0, shortUnits:0, overUnits:0};
+  siteCodes(siteId).forEach(c => {
+    const v = stockVariance(c);
+    store[v.status]++;
+    if (v.status==="short") store.shortUnits += -v.diff;
+    if (v.status==="over") store.overUnits += v.diff;
+  });
+  const r = S.rounds[iso];
+  const wards = S.wards.filter(w => w.siteId===siteId && w.enabled).sort((a,b)=>a.order-b.order).map(w => {
+    const e = r && r.wards[w.id];
+    const t = {ward:w, short:0, over:0, ok:0, nohist:0, lines:0};
+    ((e&&e.lines)||[]).forEach(l => {
+      if (!codeById(l.codeId)) return;
+      t.lines++;
+      const v = lineVariance(w.id, l, iso);
+      if (v.status==="nopar") t.nohist++; else t[v.status]++;
+    });
+    return t;
+  }).filter(t => t.lines);
+  return {store, wards};
+}
+function renderVarianceSummary(siteId, iso){
+  const v = varianceSummary(siteId, iso);
+  const s = v.store;
+  const wardRows = v.wards.map(t => `<div class="vrow"><b class="grow">${esc(t.ward.name)}</b>
+      ${t.short?`<span class="var short">${t.short} short</span>`:""}${t.over?`<span class="var over">${t.over} over</span>`:""}${t.ok?`<span class="var ok">${t.ok} OK</span>`:""}${t.nohist?`<span class="var nopar">${t.nohist} new</span>`:""}</div>`).join("")
+    || `<p class="muted" style="margin:4px 0 0">No ward counts yet today.</p>`;
+  return `<div class="card stk"><h2>Stocktake</h2>
+    <div class="vsum">
+      <div class="vbox short"><b>${s.short}</b><span>short${s.shortUnits?" (−"+s.shortUnits+")":""}</span></div>
+      <div class="vbox over"><b>${s.over}</b><span>over${s.overUnits?" (+"+s.overUnits+")":""}</span></div>
+      <div class="vbox ok"><b>${s.ok}</b><span>OK</span></div>
+    </div>
+    <p class="muted" style="margin:6px 0 0">Storage counts vs par. ${s.nopar} code${s.nopar===1?"":"s"} without a par. Wards today vs their usual:</p>
+    ${wardRows}
+    <div class="btnrow">
+      <button class="btn primary grow" data-act="export-xlsx">⬇ Excel count</button>
+      <button class="btn grow" data-act="export-csv">⬇ CSV</button>
+    </div>
+    <p class="muted" style="margin:6px 0 0">For a manager: both sites, storage plus today’s wards. Backup stays in Setup.</p>
+  </div>`;
+}
+
+/* ---- manager export ---- */
+function sydneyStamp(){
+  const parts = {};
+  for (const p of new Intl.DateTimeFormat("en-AU",{timeZone:TZ, year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hour12:false}).formatToParts(new Date())){
+    if (p.type!=="literal") parts[p.type] = p.value;
+  }
+  const hh = parts.hour==="24" ? "00" : parts.hour;
+  return {text: parts.day+"/"+parts.month+"/"+parts.year+" "+hh+":"+parts.minute, file: parts.year+"-"+parts.month+"-"+parts.day+"-"+hh+parts.minute};
+}
+const EXPORT_HEAD = ["Site","Area/Ward","Code","Item","UOM","Counted","Expected/Par","Variance","Status","Date/time (Australia/Sydney)"];
+function stocktakeRows(){
+  const iso = zonedNow().iso;
+  const when = sydneyStamp().text;
+  const rows = [];
+  S.sites.forEach(site => {
+    siteCodes(site.id).forEach(c => {
+      const v = stockVariance(c);
+      if (!v.counted && v.status==="nopar") return;
+      rows.push([site.name, "Storage stock", c.tickOnly?"":c.code, c.name||"", "box", v.counted, v.expected==null?"":v.expected, v.status==="nopar"?"":v.diff, statusWord(v,"store"), when]);
+    });
+    const r = S.rounds[iso];
+    S.wards.filter(w => w.siteId===site.id).sort((a,b)=>a.order-b.order).forEach(w => {
+      const e = r && r.wards[w.id];
+      ((e&&e.lines)||[]).forEach(l => {
+        const c = codeById(l.codeId); if (!c) return;
+        const v = lineVariance(w.id, l, iso);
+        rows.push([site.name, w.name, c.tickOnly?"":c.code, c.name||"", lineUnit(l), v.counted==null?"":v.counted, v.expected==null?"":v.expected, v.status==="nopar"?"":v.diff, statusWord(v,"ward"), when]);
+      });
+    });
+  });
+  return rows;
+}
+function downloadBlob(blob, name){
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 1500);
+}
+function exportCsv(){
+  const rows = [EXPORT_HEAD].concat(stocktakeRows());
+  const q = (v) => { const s = String(v==null?"":v); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s; };
+  const text = "\ufeff" + rows.map(r => r.map(q).join(",")).join("\r\n") + "\r\n";
+  downloadBlob(new Blob([text], {type:"text/csv;charset=utf-8"}), "ward-run-stocktake-" + sydneyStamp().file + ".csv");
+  toast("CSV downloaded · " + (rows.length-1) + " rows");
+}
+function exportXlsx(){
+  loadVendor("vendor/xlsx.mini.min.js", "XLSX").then(X => {
+    const rows = stocktakeRows();
+    const ws = X.utils.aoa_to_sheet([EXPORT_HEAD].concat(rows));
+    ws["!cols"] = [{wch:11},{wch:16},{wch:10},{wch:34},{wch:6},{wch:9},{wch:13},{wch:9},{wch:11},{wch:22}];
+    ws["!autofilter"] = {ref: "A1:J" + (rows.length+1)};
+    const wb = X.utils.book_new();
+    X.utils.book_append_sheet(wb, ws, "Stocktake");
+    const out = X.write(wb, {bookType:"xlsx", type:"array"});
+    downloadBlob(new Blob([out], {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), "ward-run-stocktake-" + sydneyStamp().file + ".xlsx");
+    toast("Excel downloaded · " + rows.length + " rows");
+  }).catch(() => toast("Excel export not available — try CSV"));
 }
 
 function defaultState(){
@@ -1312,7 +1699,7 @@ function renderRoundWard(z){
     const note = c.note ? ` <span class="shelfnote">${esc(c.note)}</span>` : "";
     return `<div class="line" data-cid="${esc(c.id)}">
       <div class="grow"><div class="code">${esc(displayCode(c))} ${kclBadge(c)}</div>
-        <div class="muted">${esc(meta||u)}${note}</div></div>
+        <div class="muted">${esc(meta||u)}${note}</div>${varChip(lineVariance(w.id, l, z.iso), "ward")}</div>
       <div class="unitpair">
         <div class="stepper">
           <button type="button" data-act="qty" data-dir="-1" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}" aria-label="Decrease">−</button>
@@ -1342,6 +1729,7 @@ function renderRoundWard(z){
       <button class="btn big grow ${st==="checked"?"ok":"primary"}" data-act="mark" data-wid="${esc(w.id)}" data-status="checked">Mark checked ✓</button>
     </div>
     <div class="card" style="margin-top:12px"><h2>This ward</h2>${lineHtml}</div>
+    <button type="button" class="scanbtn" data-act="scan-ward" data-wid="${esc(w.id)}"><span aria-hidden="true">📷</span>Scan barcode</button>
     <h3>Codes — most used first</h3>
     <div class="codes">${codeBtns}</div>
     <div class="btnrow">
@@ -1394,11 +1782,14 @@ function renderTrolleys(z){
 
 function renderStock(){
   const qid = "stock-q";
+  const q = stockQuery.trim().toLowerCase();
   const rows = siteCodes().map(c => {
     const low = (Number(c.par)||0) > 0 && (Number(c.stock)||0) < (Number(c.par)||0);
-    return `<div class="stockrow" data-name="${esc((displayCode(c)+" "+(c.name||"")+" "+(c.note||"")).toLowerCase())}">
+    const v = stockVariance(c);
+    const nm = (displayCode(c)+" "+(c.name||"")+" "+(c.note||"")).toLowerCase();
+    return `<div class="stockrow v-${v.status}" data-cid="${esc(c.id)}" data-name="${esc(nm)}"${q && !nm.includes(q) ? ' style="display:none"' : ''}>
       <div class="grow"><div class="code">${esc(displayCode(c))} ${kclBadge(c)}</div>
-        <div class="muted">${esc(displayMeta(c)||"box")} · par ${esc(c.par||0)}${low?' <span class="low">LOW</span>':''}${c.note?" · "+esc(c.note):""}</div></div>
+        <div class="muted">${esc(displayMeta(c)||"box")} · par ${esc(c.par||0)}${low?' <span class="low">LOW</span>':''}${c.note?" · "+esc(c.note):""}</div>${v.status==="nopar"?"":varChip(v,"store")}</div>
       <div class="stepper">
         <button type="button" data-act="stock" data-dir="-1" data-cid="${esc(c.id)}" aria-label="Decrease stock">−</button>
         <div class="q">${esc(c.stock||0)}</div>
@@ -1406,7 +1797,8 @@ function renderStock(){
       </div>
     </div>`;
   }).join("");
-  return `<input class="search" id="${qid}" data-act="filter-stock" placeholder="Search codes" type="search" enterkeyhint="search">
+  return renderVarianceSummary(currentSiteId(), zonedNow().iso) + `<button type="button" class="scanbtn" data-act="scan-stock"><span aria-hidden="true">📷</span>Scan to find an item</button>
+    <input class="search" id="${qid}" data-act="filter-stock" placeholder="Search codes" type="search" enterkeyhint="search" value="${esc(stockQuery)}">
     <div class="card">${rows || '<div class="muted">No codes yet.</div>'}</div>
     <p class="muted">Set par levels in Setup. A low flag appears when the count is below par. Stock is kept per site.</p>` + brandFoot();
 }
@@ -1777,8 +2169,7 @@ function exportBackup(){
     format: "ward-run-backup",
     version: 2,
     exportedAt: new Date().toISOString(),
-    data: S,
-    game: G
+    data: S
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], {type:"application/json"});
   const a = document.createElement("a");
@@ -1797,7 +2188,6 @@ function importBackup(file){
       if (!confirm("Replace all data on this phone with the backup? This cannot be undone.")) return;
       S = obj.data;
       migrate(S);
-      if (obj.game && typeof obj.game==="object"){ try{ localStorage.setItem(GSTORE, JSON.stringify(obj.game)); }catch(e){} gLoad(); }
       draftOrder = null;
       save(); render();
       toast("Backup imported");
@@ -1863,6 +2253,23 @@ document.addEventListener("click", (ev) => {
     if (!confirm("Reset XP, badges and best times? Your stock data is not touched.")) return;
     localStorage.removeItem(GSTORE); gLoad(); render(); toast("Game stats reset"); return;
   }
+  if (act==="scan-ward"){
+    const ward = wardById(b.dataset.wid); if (!ward) return;
+    openScanner(ward.siteId, (c) => { addCodeToWard(ward.id, c.id); toast("Added " + displayCode(c) + " to " + ward.name); }, "Scan for " + ward.name);
+    return;
+  }
+  if (act==="scan-stock"){
+    openScanner(currentSiteId(), (c) => {
+      stockQuery = displayCode(c);
+      render();
+      const row = document.querySelector('.stockrow[data-cid="' + (window.CSS && CSS.escape ? CSS.escape(c.id) : c.id) + '"]');
+      if (row){ row.classList.add("flash"); row.scrollIntoView({block:"center"}); }
+      toast("Found " + displayCode(c) + (c.name ? " · " + c.name : ""));
+    }, "Scan to find an item");
+    return;
+  }
+  if (act==="export-xlsx"){ exportXlsx(); return; }
+  if (act==="export-csv"){ exportCsv(); return; }
   if (act==="set-site") setCurrentSite(b.dataset.id);
   if (act==="open-ward") openWard(b.dataset.id);
   if (act==="add-code") addCodeToWard(b.dataset.wid, b.dataset.cid);
@@ -2047,6 +2454,7 @@ document.addEventListener("input", (ev) => {
   const act = t.dataset && t.dataset.act;
   if (!act) return;
   if (act==="filter-stock"){
+    stockQuery = t.value;
     const q = t.value.trim().toLowerCase();
     document.querySelectorAll(".stockrow").forEach(row => {
       row.style.display = !q || (row.dataset.name||"").includes(q) ? "" : "none";
@@ -2084,6 +2492,7 @@ document.addEventListener("change", (ev) => {
 });
 
 window.addEventListener("hashchange", () => {
+  if (!/^#stock/.test(location.hash)) stockQuery = "";
   clearTimeout(toastTimer);
   document.getElementById("toast").classList.remove("show");
   render();
