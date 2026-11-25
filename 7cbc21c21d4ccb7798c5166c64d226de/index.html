@@ -37,7 +37,7 @@ input[type=file]{display:none}
 .items{display:flex;flex-direction:column;gap:10px}
 .item{border:1px solid var(--line);border-radius:12px;padding:10px}
 .item.low{border-color:#f5b041;background:#fffaf0}
-.item.chk{border:2px solid var(--r);background:#fff1f1}
+.item.flag{border:2px solid var(--r);background:#fff1f1}
 .item .why{font-size:13px;color:var(--r);font-weight:600;margin:4px 0}
 .item .head{display:flex;gap:8px;align-items:flex-start}.item .head .crop{width:84px;height:84px;object-fit:contain;border-radius:8px;background:#eee;border:1px solid var(--line);flex:none}.item .head .nm{flex:1;min-width:0}
 .item .name{width:100%;font-size:17px;font-weight:600;padding:10px;border:1px solid var(--line);border-radius:8px}
@@ -681,7 +681,7 @@ function srcText(r){const e=Object.entries(r.src||{});const at=r.srcAt||{};retur
 function render(){
   const box=$('items');
   if(!S.rows.length){box.innerHTML='<div class="empty">No products yet. Add photos and tap Scan.</div>';$('total').textContent='';return;}
-  box.innerHTML=S.rows.map(r=>{const why=checkWhy(r);return `<div class="item ${why.length?'chk':''}" data-id="${r.id}">
+  box.innerHTML=S.rows.map(r=>{const why=checkWhy(r);return `<div class="item ${why.length?'flag':''}" data-id="${r.id}">
     <button class="del" data-act="del">✕ Remove</button>
     <div class="head">${CROPS[r.id]?`<img class="crop" src="${CROPS[r.id]}" alt="where it was seen">`:''}<div class="nm">
     <label>Product name${r.conf&&r.conf!=='high'?' · <b style="color:#d97706">'+esc(r.conf)+' confidence</b>':''}</label><input class="name" data-f="name" value="${esc(r.name)}">
