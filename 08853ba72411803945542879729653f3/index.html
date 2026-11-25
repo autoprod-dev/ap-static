@@ -371,7 +371,7 @@ label.btn{cursor:pointer}
 (function(){
 "use strict";
 
-const VERSION = "1.4.0";
+const VERSION = "1.4.1";
 const STORE = "ward-run-v1";
 const TZ = "Australia/Sydney";
 const DOW = {Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6};
@@ -452,6 +452,18 @@ const CH_EXTRA_WARDS = [
 ];
 /* R2a / R2b were the v1.0 abbreviations for Rec 2 rooms a and b. */
 const CH_RENAME = {R2a:"Rec 2 room a", R2b:"Rec 2 room b"};
+const CH_RETIRED_IDS = ["w-rec2","w-rec-2-station","w-rec-2-med-rooms","w-r2a","w-r2b","w-r2"];
+const CH_RETIRED_NAMES = ["rec2","rec 2","rec 2 station","rec 2 med rooms","rec 2 room a","rec 2 room b","r2","r2a","r2b"];
+function isRetiredWard(w){
+  if (!w) return false;
+  if (CH_RETIRED_IDS.includes(w.id)) return true;
+  const n = String(w.name||"").toLowerCase().replace(/\s+/g," ").trim();
+  if (!n) return false;
+  if (CH_RETIRED_NAMES.includes(n)) return true;
+  if (/^rec\s*2(\b|$)/.test(n)) return true;
+  if (/^rec\s*med\s*rooms?$/.test(n) || /^rec\s*medrooms?$/.test(n)) return true;
+  return false;
+}
 
 const POW_CATALOG = [
   {code:"AHF7163", name:"Ringers irrigation pour bottle 15x500mL"},
@@ -652,6 +664,8 @@ function dayReport(iso, siteFilter){
   });
   ids.forEach(wid => {
     const e = r.wards[wid];
+    const wRec = wardById(wid);
+    if (isRetiredWard(wRec) || isRetiredWard({id:wid, name:(wRec&&wRec.name)||""})) return;
     const sid = entrySiteId(wid, e);
     if (siteFilter && siteFilter!=="all" && sid!==siteFilter) return;
     const lines = deliveredLines(e);
@@ -1062,26 +1076,14 @@ function ringSvg(done, total){
 function renderHero(z){
   const sid = currentSiteId();
   const p = siteProgress(sid);
-  const info = levelInfo(totalXp());
-  const streak = streakDays();
-  const run = G.runs[runKey(z.iso, sid)];
-  const best = G.best[sid];
-  const win = run && run.complete;
-  const pills = [];
-  pills.push(`<span class="pill">🔥 ${streak} day${streak===1?"":"s"}</span>`);
-  pills.push(`<span class="pill">⭐ +${todayXp(z.iso)} today</span>`);
-  pills.push(`<span class="pill">⏱ Best ${esc(fmtDur(best))}</span>`);
-  const status = win
-    ? `Round done${run.ms?" in "+fmtDur(run.ms):""}! 🏆`
+  const status = (p.total && p.done===p.total)
+    ? "Round done"
     : (p.total - p.done) + " ward" + (p.total-p.done===1?"":"s") + " to go";
-  return `<section class="hero${win?" win":""}" aria-label="Today's progress">
+  return `<section class="hero" aria-label="Today's progress">
     <div class="ring" role="img" aria-label="${p.done} of ${p.total} wards done">${ringSvg(p.done, p.total)}
       <div class="rt"><b>${p.done}/${p.total}</b><span>wards</span></div></div>
     <div class="grow">
-      <div class="lvl"><span class="badge-lv">Lv ${info.level}</span>${esc(info.title)}</div>
-      <div class="xpbar" role="progressbar" aria-valuemin="0" aria-valuemax="${info.need}" aria-valuenow="${info.into}" aria-label="XP to next level"><span style="width:${info.pct}%"></span></div>
-      <div class="hs">${info.into} / ${info.need} XP to Lv ${info.level+1} · ${esc(status)}</div>
-      <div class="pills">${pills.join("")}</div>
+      <div class="hs">${esc(status)}</div>
     </div>
   </section>`;
 }
@@ -1526,7 +1528,7 @@ function groupByBuilding(wards){
 function defaultState(){
   const wards = [];
   POW_WARD_DEFS.forEach((w,i) => wards.push(wardFromDef(w,i,SITE_POW,true)));
-  CH_WARD_DEFS.forEach((w,i) => wards.push({id:w.id, name:w.name, order:i, siteId:SITE_CH, enabled:true}));
+  CH_WARD_DEFS.forEach((w,i) => wards.push({id:w.id, name:w.name, order:i, siteId:SITE_CH, enabled:!isRetiredWard(w)}));
   CH_EXTRA_WARDS.forEach((w,i) => wards.push({id:w.id, name:w.name, order:CH_WARD_DEFS.length+i, siteId:SITE_CH, enabled:false}));
   const codes = [];
   POW_CATALOG.forEach(p => {
@@ -1640,7 +1642,7 @@ function migrate(s){
       if (w && w.siteId!==SITE_CH) w.siteId = SITE_CH;
       return;
     }
-    s.wards.push({id:def.id, name:def.name, order:i, siteId:SITE_CH, enabled:true});
+    s.wards.push({id:def.id, name:def.name, order:i, siteId:SITE_CH, enabled:!isRetiredWard(def)});
     haveId.add(def.id); haveName.add(def.name.toLowerCase());
   });
   CH_EXTRA_WARDS.forEach((def, i) => {
@@ -1655,6 +1657,7 @@ function migrate(s){
     .sort((a,b) => (chIndex[a.id]??chByName[String(a.name||"").toLowerCase()]??99) - (chIndex[b.id]??chByName[String(b.name||"").toLowerCase()]??99));
   const unknown = chWards.filter(w => !known.includes(w)).sort((a,b)=>a.order-b.order);
   known.concat(unknown).forEach((w,i) => { w.order = i; });
+  s.wards.forEach(w => { if (isRetiredWard(w)) w.enabled = false; });
 
   const seed = Number(s.powWardSeed)||0;
   if (seed < POW_WARD_SEED){
@@ -2013,8 +2016,7 @@ function renderBar(z){
   const site = siteById(currentSiteId());
   if (site && route.page!=="round-ward") sub = (sub ? sub + " · " : "") + site.name;
   extra = ""; /* v1.2: progress lives in the hero ring and the ward header */
-  const gchips = `<span class="gchip" title="Level">Lv ${levelInfo(totalXp()).level}</span>` +
-    `<button type="button" class="gchip snd" data-act="sound" aria-pressed="${G.sound?"true":"false"}" aria-label="${G.sound?"Sound and vibration on, tap to mute":"Muted, tap for sound and vibration"}">${G.sound?"🔊":"🔇"}</button>`;
+  const gchips = `<button type="button" class="gchip snd" data-act="sound" aria-pressed="${G.sound?"true":"false"}" aria-label="${G.sound?"Sound and vibration on, tap to mute":"Muted, tap for sound and vibration"}">${G.sound?"🔊":"🔇"}</button>`;
   const siteTog = (route.page==="report") ? "" : renderSiteToggle();
   bar.innerHTML =
     (back ? `<button class="back" data-act="back" aria-label="Back">‹</button>` : "") +
@@ -2056,7 +2058,6 @@ function renderWardButton(w, r, pop, medal, extraCls){
   if (top && status==="pending" && !n) meta = "Often: " + top;
   const done = isDone(e);
   const cls = (done ? " done" : (n ? " prog" : "")) + (extraCls ? " "+extraCls : "");
-  if (done) chip = chip + ` <span class="chip xp">+${wardXp(e)}</span>`;
   const day = `<span class="daychip">${esc(fmtDays(w))}</span>`;
   const note = w.notes ? `<div class="wardnote">${esc(w.notes)}</div>` : "";
   return `<button class="ward${cls}" data-act="open-ward" data-id="${esc(w.id)}">
@@ -2134,17 +2135,16 @@ function renderRoundWard(z){
   const st = e.status;
   const sp = siteProgress(w.siteId);
   const pct = sp.total ? Math.round(sp.done/sp.total*100) : 0;
-  const gain = st==="nothing" ? XP_WARD : wardXp(e);
   return `
-    <div class="wardhead"><span class="chip xp">${sp.done}/${sp.total} wards</span><div class="progress"><span style="width:${pct}%"></span></div><span class="chip xp">+${gain} XP</span></div>
+    <div class="wardhead"><span class="chip">${sp.done}/${sp.total} wards</span><div class="progress"><span style="width:${pct}%"></span></div></div>
     ${w.building||w.onCall||Array.isArray(w.days)||w.notes ? `<div class="card notesbox" style="min-height:0;padding:10px 12px">${w.building?`<div class="muted">${esc(w.building)}</div>`:""}<div><span class="daychip">${esc(fmtDays(w))}</span></div>${w.notes?`<div class="wardnote" style="margin-top:6px">${esc(w.notes)}</div>`:""}</div>`:""}
     <div class="privbox"><label for="priv-note">Private note (stays on this phone)</label>
       <textarea id="priv-note" data-act="ward-private" data-id="${esc(w.id)}" rows="2" placeholder="Extra notes stay on this phone only.">${esc(w.privateNote||"")}</textarea>
       <p class="muted" style="margin:6px 0 0">Extra notes stay on this phone only.</p>
     </div>
     <div class="btnrow" style="margin-top:12px">
-      <button class="btn big ${st==="nothing"?"warn":""}" data-act="mark" data-wid="${esc(w.id)}" data-status="nothing">Nothing needed</button>
-      <button class="btn big grow ${st==="checked"?"ok":"primary"}" data-act="mark" data-wid="${esc(w.id)}" data-status="checked">Mark checked ✓</button>
+      <button class="btn big ${st==="nothing"?"warn":""}" data-act="mark" data-wid="${esc(w.id)}" data-status="nothing">${st==="nothing"?"Nothing needed — tap to uncheck":"Nothing needed"}</button>
+      <button class="btn big grow ${st==="checked"?"ok":"primary"}" data-act="mark" data-wid="${esc(w.id)}" data-status="checked">${st==="checked"?"Done ✓ — tap to uncheck":"Mark done ✓"}</button>
     </div>
     <div class="card" style="margin-top:12px"><h2>This ward</h2>${lineHtml}</div>
     <button type="button" class="scanbtn" data-act="scan-ward" data-wid="${esc(w.id)}"><span aria-hidden="true">📷</span>Scan barcode</button>
@@ -2153,7 +2153,6 @@ function renderRoundWard(z){
     <div class="btnrow">
       <button class="btn block" data-act="other-code" data-wid="${esc(w.id)}">Other code…</button>
     </div>
-    ${st!=="pending" ? `<div class="btnrow"><button class="btn ghost block" data-act="mark" data-wid="${esc(w.id)}" data-status="pending">Clear checked state</button></div>`:""}
   `;
 }
 
@@ -2328,7 +2327,7 @@ function renderMore(z){
       <a class="btn" href="#history" style="text-decoration:none;display:inline-flex;align-items:center">History</a>
       <a class="btn" href="#setup" style="text-decoration:none;display:inline-flex;align-items:center">Setup</a>
     </div>
-    ${route.page==="more" ? renderTrophies(z) : ""}
+    ${route.page==="more" ? `<p class="muted" style="margin:12px 0 0">Open Setup to edit wards, codes and the backup.</p>` : ""}
     ${route.page==="history" ? renderHistory(z, pop) : ""}
   `;
 }
@@ -2447,7 +2446,7 @@ function renderReport(z){
 function renderSetup(){
   const sid = currentSiteId();
   const site = siteById(sid);
-  const wards = S.wards.filter(w => w.siteId===sid).sort((a,b)=>a.order-b.order);
+  const wards = S.wards.filter(w => w.siteId===sid && !isRetiredWard(w)).sort((a,b)=>a.order-b.order);
   const wardRows = wards.map((w,i) => {
     const days = w.onCall ? [] : (Array.isArray(w.days) ? w.days : [0,1,2,3,4,5,6]);
     const picks = DAY_LABELS.map((lab,d) =>
@@ -2511,10 +2510,9 @@ function renderSetup(){
       ${codeRows}
       <div class="btnrow"><button class="btn" data-act="code-add">Add code</button></div>
     </div>
-    <div class="card"><h2>Game</h2>
-      <p class="muted">XP, badges and best times are kept apart from your stock data. Sound and vibration: ${G.sound?"on":"off"}.</p>
-      <div class="btnrow"><button class="btn" data-act="sound">${G.sound?"Mute sound and vibration":"Turn sound and vibration on"}</button>
-      <button class="btn ghost danger" data-act="game-reset">Reset game stats</button></div>
+    <div class="card"><h2>Sound</h2>
+      <p class="muted">Tick sounds and vibration: ${G.sound?"on":"off"}.</p>
+      <div class="btnrow"><button class="btn" data-act="sound">${G.sound?"Mute sound and vibration":"Turn sound and vibration on"}</button></div>
     </div>
     <div class="card"><h2>Backup</h2>
       <p class="muted">Everything lives on this phone. Export a JSON copy now and then.</p>
@@ -2584,13 +2582,17 @@ function removeLine(wid, cid){
 }
 function markWard(wid, status){
   const e = wardEntry(todayRound(), wid);
-  const wasDone = isDone(e);
   const mw = wardById(wid); if (mw) touchRun(mw.siteId);
+  if ((status==="checked" || status==="nothing") && e.status===status){
+    e.status = "pending";
+    touchEntry(wid, e);
+    save();
+    render();
+    return;
+  }
   e.status = status;
-  if (status==="nothing") e.lines = [];
   touchEntry(wid, e);
   save();
-  if (!wasDone && isDone(e)) gameWardDone(wid);
   if (status==="checked" || status==="nothing"){
     const ww = wardById(wid);
     const wards = scheduledWards(ww ? ww.siteId : currentSiteId(), zonedNow().iso);
@@ -2610,7 +2612,7 @@ function tickItem(wid, cid){
   if (!S.trolley[day]) S.trolley[day] = {};
   const key = tickKey(day, wid, cid);
   S.trolley[day][key] = !S.trolley[day][key];
-  if (S.trolley[day][key]){ sfx("tick"); buzz(8); floatText("+1 XP"); }
+  if (S.trolley[day][key]){ sfx("tick"); buzz(8); }
   save(); render();
 }
 function changeStock(cid, dir){
@@ -2885,7 +2887,7 @@ document.addEventListener("click", (ev) => {
     save();
     render();
     toast("Order logged · delivery " + shortDate(d.expectedDelivery));
-    gameOrderSent(z, d.siteId);
+    /* points UI removed; stored game data is left in place */
   }
   if (act==="export") exportBackup();
   if (act==="import"){
@@ -2894,7 +2896,7 @@ document.addEventListener("click", (ev) => {
   }
   if (act==="ward-move"){
     const sid = currentSiteId();
-    const list = S.wards.filter(w => w.siteId===sid).sort((a,b)=>a.order-b.order);
+    const list = S.wards.filter(w => w.siteId===sid && !isRetiredWard(w)).sort((a,b)=>a.order-b.order);
     const i = list.findIndex(w => w.id===b.dataset.id);
     const j = i + Number(b.dataset.dir);
     if (i<0 || j<0 || j>=list.length) return;
