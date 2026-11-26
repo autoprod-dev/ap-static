@@ -81,6 +81,12 @@ a.btn:visited{color:var(--ink)}
 .codebtn .cn{font-size:.68rem;font-weight:600;color:var(--muted);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .codebtn.on{background:var(--teal-s);border-color:var(--teal);color:var(--teal-d)}
 .codebtn.hot{box-shadow:inset 0 0 0 2px var(--teal)}
+.fluid-search{margin:12px 0 8px}
+.codewrap{position:relative;min-width:0}
+.codewrap .starbtn{position:absolute;top:0;right:0;width:28px;height:28px;border:0;background:transparent;
+  font-size:14px;line-height:1;color:var(--muted);cursor:pointer;padding:0;z-index:1}
+.codewrap .starbtn.on{color:#c9a227}
+.fluid-group h3,.favblock h3{margin:14px 0 6px;font-size:.78rem;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
 .line{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
 .line:last-child{border-bottom:0}
 .line .code{font-weight:800;font-variant-numeric:tabular-nums}
@@ -473,12 +479,13 @@ h3{margin:10px 0 6px}
 (function(){
 "use strict";
 
-const VERSION = "1.6.0";
+const VERSION = "1.6.1";
 const STORE = "ward-run-v1";
 const TZ = "Australia/Sydney";
 const DOW = {Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6};
 const SITE_POW = "s-pow";
 const SITE_CH = "s-childrens";
+const SITE_PRABIN = "s-pow-prabin";
 
 const SHARE_URL = "https://xmsndohxzhhipojlgnde.supabase.co";
 const SHARE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhtc25kb2h4emhoaXBvamxnbmRlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTUzMzY2OTksImV4cCI6MjExMDkxMjY5OX0.tO0tyvy4SwPsXEPNIYaf0PCOj2AnUpHQvr1d6oqH24s";
@@ -640,6 +647,7 @@ let histAnchor = null;
 let toastTimer = 0;
 let draftOrder = null;
 let stockQuery = "";
+let fluidQuery = "";
 let usualExpanded = {};
 const USUAL_SHOW = 3;
 
@@ -2150,7 +2158,7 @@ function wardFromDef(def, i, siteId, enabled){
   const w = {id:def.id, name:def.name, order:i, siteId:siteId, enabled:enabled!==false, building:def.building||"", notes:def.notes||"", privateNote:"", onCall:!!def.onCall};
   if (w.onCall) w.days = [];
   else if (def.days) w.days = def.days.slice();
-  else if (siteId===SITE_POW) w.days = [2,4];
+  else if (siteId===SITE_POW || siteId===SITE_PRABIN) w.days = [2,4];
   return w;
 }
 function applyPowDef(w, def, i){
@@ -2243,7 +2251,8 @@ function defaultState(){
       orderWeekdays: [2,4],
       orderHour: 11,
       currentSiteId: SITE_CH,
-      staffName: ""
+      staffName: "",
+      showPrabinArea: false
     },
     share: null,
     rounds: {},
@@ -2253,7 +2262,8 @@ function defaultState(){
     stocktake: {},
     stockDeliveries: [],
     stockRestored: {},
-    stockDeliveryDraft: {}
+    stockDeliveryDraft: {},
+    stars: {}
   };
 }
 
@@ -2546,6 +2556,9 @@ function migrate(s){
   if (!s.stockDeliveryDraft || typeof s.stockDeliveryDraft!=="object") s.stockDeliveryDraft = {};
   if (st.staffName == null) st.staffName = "";
   initStocktakeFromExisting(s);
+  if (!s.stars || typeof s.stars!=="object") s.stars = {};
+  if (s.settings && s.settings.showPrabinArea == null) s.settings.showPrabinArea = false;
+  seedPrabinArea(s);
   ensureShare(s);
   shareSeedLocal(s);
   s.version = Math.max(Number(s.version)||1, 2);
@@ -2578,7 +2591,8 @@ const SHARE_TABLE = {
   deliveries: "ward_run_stock_deliveries",
   restored: "ward_run_stock_restored",
   pack: "ward_run_code_pack",
-  par: "ward_run_code_par"
+  par: "ward_run_code_par",
+  wardDefs: "ward_run_ward_defs"
 };
 
 let shareBusy = false;
@@ -2586,7 +2600,7 @@ let shareAgain = false;
 let shareTimer = 0;
 let shareApplying = false;
 let shareStarted = false;
-const shareRemoteAt = {ticks:{}, lines:{}, wards:{}, stock:{}, baseline:{}, ticked:{}, deliveries:{}, restored:{}, pack:{}, par:{}};
+const shareRemoteAt = {ticks:{}, lines:{}, wards:{}, stock:{}, baseline:{}, ticked:{}, deliveries:{}, restored:{}, pack:{}, par:{}, defs:{}};
 
 function shareNow(){ return new Date().toISOString(); }
 function tsMs(s){ const n = Date.parse(s||""); return Number.isFinite(n) ? n : 0; }
@@ -2671,6 +2685,8 @@ function ensureShare(s){
   sh.restoredAt = sh.restoredAt && typeof sh.restoredAt==="object" ? sh.restoredAt : {};
   sh.packAt = sh.packAt && typeof sh.packAt==="object" ? sh.packAt : {};
   sh.parAt = sh.parAt && typeof sh.parAt==="object" ? sh.parAt : {};
+  sh.defAt = sh.defAt && typeof sh.defAt==="object" ? sh.defAt : {};
+  sh.defGone = sh.defGone && typeof sh.defGone==="object" ? sh.defGone : {};
   if (!sh.status) sh.status = navigator.onLine ? "pending" : "offline";
   return sh;
 }
@@ -2798,6 +2814,88 @@ function shareTouchPar(c){
   sh.parAt[siteId+"|"+c.id] = shareNow();
   sh.status = navigator.onLine ? "pending" : "offline";
 }
+function shareTouchWardDef(w){
+  if (shareApplying || !w || !w.id || officialWardIds().has(w.id)) return;
+  w.custom = true;
+  const sh = ensureShare();
+  sh.defAt[w.id] = shareNow();
+  sh.status = navigator.onLine ? "pending" : "offline";
+}
+function applyRemoteWardDef(row){
+  const id = row && row.ward_id;
+  if (!id) return false;
+  const sh = ensureShare();
+  if (!tsNewer(row.updated_at, sh.defAt[id])) {
+    shareRemoteAt.defs[id] = row.updated_at;
+    return false;
+  }
+  if (officialWardIds().has(id)) {
+    shareRemoteAt.defs[id] = row.updated_at;
+    return false;
+  }
+  let w = wardById(id);
+  const days = parseMoved(row.days);
+  if (row.deleted){
+    if (w){
+      w.enabled = false;
+      w.customDeleted = true;
+    }
+    sh.defAt[id] = row.updated_at;
+    shareRemoteAt.defs[id] = row.updated_at;
+    return !!w;
+  }
+  const siteId = row.site_id || SITE_CH;
+  if (!w){
+    w = {id, name: row.name||"Ward", order: Number(row.sort_order)||99, siteId, enabled: row.enabled!==false, building: row.building||"", notes: row.notes||"", privateNote:"", onCall:!!row.on_call, custom:true};
+    if (Array.isArray(days)) w.days = days;
+    S.wards.push(w);
+  } else {
+    if (row.name) w.name = row.name;
+    if (row.site_id) w.siteId = row.site_id;
+    w.enabled = row.enabled!==false;
+    w.building = row.building||"";
+    w.notes = row.notes||"";
+    w.onCall = !!row.on_call;
+    w.custom = true;
+    if (row.sort_order!=null && Number.isFinite(Number(row.sort_order))) w.order = Number(row.sort_order);
+    if (Array.isArray(days)) w.days = days;
+  }
+  sh.defAt[id] = row.updated_at;
+  shareRemoteAt.defs[id] = row.updated_at;
+  return true;
+}
+function collectPushWardDefs(){
+  const sh = ensureShare();
+  const rows = [];
+  Object.keys(sh.defAt||{}).forEach(id => {
+    if (sh.defGone[id] && !tsNewer(sh.defAt[id], sh.defGone[id])) {
+      rows.push({
+        ward_id:id, site_id: SITE_CH, name:"", building:"", notes:"", days:null,
+        on_call:false, enabled:false, sort_order:0, deleted:true,
+        updated_at: sh.defGone[id], device_id: sh.deviceId, actor: staffName()||null
+      });
+      return;
+    }
+    const w = wardById(id);
+    if (!w || officialWardIds().has(w.id)) return;
+    rows.push({
+      ward_id: w.id,
+      site_id: w.siteId || currentSiteId(),
+      name: w.name||"",
+      building: w.building||"",
+      notes: w.notes||"",
+      days: Array.isArray(w.days) ? dumpMoved(w.days) : null,
+      on_call: !!w.onCall,
+      enabled: w.enabled!==false,
+      sort_order: Number(w.order)||0,
+      deleted: !!w.customDeleted,
+      updated_at: sh.defAt[id],
+      device_id: sh.deviceId,
+      actor: staffName()||null
+    });
+  });
+  return rows;
+}
 function shareAfterMove(rec){
   if (!rec || shareApplying) return;
   (rec.items||[]).forEach(it => {
@@ -2885,6 +2983,18 @@ async function shareUpsert(table, conflict, rows){
       Prefer: "resolution=merge-duplicates,return=minimal"
     });
   }
+}
+function shareTableMissing(err){
+  const msg = String((err && err.message) || err || "");
+  return /\b404\b|PGRST205|schema cache|does not exist|Could not find the table/i.test(msg);
+}
+async function shareSelectOptional(table){
+  try { return await shareSelect(table); }
+  catch(e){ if (shareTableMissing(e)) return []; throw e; }
+}
+async function shareUpsertOptional(table, conflict, rows){
+  try { await shareUpsert(table, conflict, rows); }
+  catch(e){ if (shareTableMissing(e)) return; throw e; }
 }
 
 function parseMoved(raw){
@@ -3261,7 +3371,7 @@ function collectPushStock(){
 }
 
 async function sharePull(){
-  const [ticks, lines, wards, stocktakes, baseline, ticked, deliveries, restored, pack, par] = await Promise.all([
+  const [ticks, lines, wards, stocktakes, baseline, ticked, deliveries, restored, pack, par, defs] = await Promise.all([
     shareSelect(SHARE_TABLE.ticks),
     shareSelect(SHARE_TABLE.lines),
     shareSelect(SHARE_TABLE.wards),
@@ -3271,7 +3381,8 @@ async function sharePull(){
     shareSelect(SHARE_TABLE.deliveries),
     shareSelect(SHARE_TABLE.restored),
     shareSelect(SHARE_TABLE.pack),
-    shareSelect(SHARE_TABLE.par)
+    shareSelect(SHARE_TABLE.par),
+    shareSelectOptional(SHARE_TABLE.wardDefs)
   ]);
   shareApplying = true;
   let changed = false;
@@ -3286,6 +3397,7 @@ async function sharePull(){
     (restored||[]).forEach(r => { if (applyRemoteRestored(r)) changed = true; });
     (pack||[]).forEach(r => { if (applyRemotePack(r)) changed = true; });
     (par||[]).forEach(r => { if (applyRemotePar(r)) changed = true; });
+    (defs||[]).forEach(r => { if (applyRemoteWardDef(r)) changed = true; });
     applyOfficialNames(S);
     if (changed) syncCodeStockFromOnHand();
   } finally {
@@ -3306,6 +3418,7 @@ async function sharePush(){
   await shareUpsert(SHARE_TABLE.restored, "site_id,code_id", st.restored);
   await shareUpsert(SHARE_TABLE.pack, "site_id,code_id", st.pack);
   await shareUpsert(SHARE_TABLE.par, "site_id,code_id", st.par);
+  await shareUpsertOptional(SHARE_TABLE.wardDefs, "ward_id", collectPushWardDefs());
 }
 
 async function shareSync(){
@@ -3368,13 +3481,63 @@ function shareStart(){
 }
 
 
+function prabinAreaOn(){ return !!(S.settings && S.settings.showPrabinArea); }
+function officialWardIds(){
+  const ids = new Set();
+  (POW_WARD_DEFS||[]).forEach(d => { if (d && d.id) ids.add(d.id); });
+  (CH_WARD_DEFS||[]).forEach(d => { if (d && d.id) ids.add(d.id); });
+  (CH_EXTRA_WARDS||[]).forEach(d => { if (d && d.id) ids.add(d.id); });
+  (POW_WARD_DEFS||[]).forEach(d => {
+    if (d && d.id) ids.add("w-prabin-" + String(d.id).replace(/^w-pow-/, ""));
+  });
+  return ids;
+}
+function seedPrabinArea(s){
+  s = s || S;
+  if (!s.settings) s.settings = {};
+  if (s.settings.showPrabinArea == null) s.settings.showPrabinArea = false;
+  if (!siteExists(s, SITE_PRABIN)) s.sites.push({id:SITE_PRABIN, name:"POW (Prabin)"});
+  else {
+    const p = (s.sites||[]).find(x => x.id===SITE_PRABIN);
+    if (p && !p.name) p.name = "POW (Prabin)";
+  }
+  const haveId = new Set((s.wards||[]).map(w => w.id));
+  (POW_WARD_DEFS||[]).forEach((def,i) => {
+    const id = "w-prabin-" + String(def.id||"").replace(/^w-pow-/, "");
+    if (haveId.has(id)) return;
+    const w = wardFromDef(def, i, SITE_PRABIN, true);
+    w.id = id;
+    s.wards.push(w);
+    haveId.add(id);
+  });
+  const addPrabinCode = (code, name, note, kcl, tickOnly) => {
+    if (tickOnly){
+      if ((s.codes||[]).some(c => c.siteId===SITE_PRABIN && c.tickOnly && String(c.name||"").toLowerCase()===String(name||"").toLowerCase())) return;
+      s.codes.push({id:"c-prabin-"+slug(name||"item"), code:"", name:name||"", note:"", kcl:false, tickOnly:true, unit:"box", par:0, stock:0, siteId:SITE_PRABIN, seed:0});
+      return;
+    }
+    if (findSiteCode(s, SITE_PRABIN, code)) return;
+    s.codes.push({id:"c-prabin-"+code, code, name:name||officialNameFor(code)||powNameFor(code)||"", note:note||"", kcl:!!kcl || /kcl/i.test(name||""), tickOnly:false, unit:"box", par:0, stock:0, siteId:SITE_PRABIN, seed:0});
+  };
+  (CH_CODES||[]).forEach(code => addPrabinCode(code, officialNameFor(code)||powNameFor(code), "", false, false));
+  if (!(CH_CODES||[]).includes("2B7231")){
+    const p = (POW_CATALOG||[]).find(x => x.code==="2B7231") || {code:"2B7231", name:"", note:""};
+    addPrabinCode("2B7231", officialNameFor("2B7231")||p.name||"", p.note||"", !!p.kcl, false);
+  }
+  (CH_TICKS||[]).forEach(name => addPrabinCode("", name, "", false, true));
+}
+function visibleSites(){
+  return (S.sites||[]).filter(s => s.id!==SITE_PRABIN || prabinAreaOn());
+}
 function currentSiteId(){
   const id = S.settings && S.settings.currentSiteId;
-  if (id && siteById(id)) return id;
-  return (S.sites[0]&&S.sites[0].id) || SITE_POW;
+  const vis = visibleSites();
+  if (id && vis.some(s => s.id===id)) return id;
+  if (vis.some(s => s.id===SITE_CH)) return SITE_CH;
+  return (vis[0]&&vis[0].id) || SITE_POW;
 }
 function setCurrentSite(id){
-  if (!siteById(id)) return;
+  if (!visibleSites().some(s => s.id===id)) return;
   S.settings.currentSiteId = id;
   draftOrder = null;
   S.draftOrder = null;
@@ -3505,6 +3668,149 @@ function wardHitBag(wardId, excludeIso){
   });
   return bag;
 }
+const FLUID_GROUPS = [
+  {id:"saline", label:"Sodium chloride/saline"},
+  {id:"glucose", label:"Glucose"},
+  {id:"glucsal", label:"Glucose + saline"},
+  {id:"hartmann", label:"Hartmann's/Ringer's"},
+  {id:"plasmalyte", label:"Plasma-Lyte"},
+  {id:"kcl", label:"Potassium (KCl)"},
+  {id:"irrig", label:"Irrigation"},
+  {id:"other", label:"Other"}
+];
+function fluidSearchText(c){
+  return [displayCode(c), displayCodeLabel(c), c && c.name, c && c.note, c && c.code].filter(Boolean).join(" ").toLowerCase();
+}
+function fluidGroupId(c){
+  const text = fluidSearchText(c);
+  const kcl = (c && c.kcl) || /\bkcl\b|potassium/.test(text);
+  if (kcl) return "kcl";
+  if (/\birrigat|\bpour\b|\bslush\b|\bslosh\b|\bglycine\b|water for irrigation/.test(text)) return "irrig";
+  if (/plasma[\s-]?lyte|plasmalyte/.test(text)) return "plasmalyte";
+  if (/hartmann|\bringer/.test(text)) return "hartmann";
+  const gluc = /\bglucose\b|\bdextrose\b/.test(text);
+  const sal = /\bsodium chloride\b|\bnacl\b|\bsaline\b/.test(text);
+  if (gluc && sal) return "glucsal";
+  if (gluc) return "glucose";
+  if (sal) return "saline";
+  return "other";
+}
+function starsBag(siteId){
+  if (!S.stars || typeof S.stars!=="object") S.stars = {};
+  if (!S.stars[siteId] || typeof S.stars[siteId]!=="object") S.stars[siteId] = {pin:[], hide:[]};
+  const bag = S.stars[siteId];
+  if (!Array.isArray(bag.pin)) bag.pin = [];
+  if (!Array.isArray(bag.hide)) bag.hide = [];
+  return bag;
+}
+function siteUsageHits(siteId, skipIso){
+  const today = skipIso || (zonedNow() && zonedNow().iso) || "";
+  const bag = {};
+  Object.values(S.rounds||{}).forEach(round => {
+    if (today && round.date === today) return;
+    Object.entries(round.wards||{}).forEach(([wid, entry]) => {
+      const ward = wardById(wid);
+      if (!ward || ward.siteId!==siteId) return;
+      (entry.lines||[]).forEach(line => {
+        if (!line || !line.codeId) return;
+        bag[line.codeId] = (bag[line.codeId]||0) + 1;
+      });
+    });
+  });
+  return bag;
+}
+function favouriteCodes(siteId){
+  const bag = starsBag(siteId);
+  const hits = siteUsageHits(siteId);
+  const auto = Object.keys(hits)
+    .filter(id => hits[id]>0 && codeById(id) && codeById(id).siteId===siteId && !bag.hide.includes(id))
+    .sort((a,b) => hits[b]-hits[a] || a.localeCompare(b))
+    .slice(0, 8);
+  const seen = new Set();
+  const out = [];
+  bag.pin.forEach(id => {
+    const c = codeById(id);
+    if (c && c.siteId===siteId && !seen.has(id)){ seen.add(id); out.push(c); }
+  });
+  auto.forEach(id => {
+    const c = codeById(id);
+    if (c && !seen.has(id)){ seen.add(id); out.push(c); }
+  });
+  return out;
+}
+function isFavourite(siteId, cid){
+  return favouriteCodes(siteId).some(c => c.id===cid);
+}
+function toggleStar(siteId, cid){
+  if (!cid) return;
+  const bag = starsBag(siteId);
+  if (isFavourite(siteId, cid) || bag.pin.includes(cid)){
+    bag.pin = bag.pin.filter(x => x!==cid);
+    if (!bag.hide.includes(cid)) bag.hide.push(cid);
+  } else {
+    bag.hide = bag.hide.filter(x => x!==cid);
+    if (!bag.pin.includes(cid)) bag.pin.push(cid);
+  }
+  save();
+}
+function addCustomWard(name, siteId){
+  name = String(name||"").trim();
+  if (!name) return null;
+  const sid = siteId || currentSiteId();
+  if (!confirmLiveChange(sid)) return null;
+  const id = "w-custom-"+slug(name)+"-"+uid("");
+  const max = S.wards.filter(w=>w.siteId===sid).reduce((m,w)=>Math.max(m,w.order),-1);
+  const w = {id, name, order:max+1, siteId:sid, enabled:true, building:"", notes:"", privateNote:"", onCall:false, custom:true};
+  S.wards.push(w);
+  shareTouchWardDef(w);
+  save();
+  shareKick();
+  return w;
+}
+function renderFluidPicker(w, used){
+  const sid = w.siteId || currentSiteId();
+  const favs = favouriteCodes(sid);
+  const favIds = new Set(favs.map(c => c.id));
+  const rest = [];
+  const seen = new Set(favIds);
+  siteCodes(sid).forEach(c => { if (c && !seen.has(c.id)){ seen.add(c.id); rest.push(c); } });
+  const groups = {};
+  FLUID_GROUPS.forEach(g => { groups[g.id] = []; });
+  rest.forEach(c => {
+    const gid = fluidGroupId(c);
+    (groups[gid] || groups.other).push(c);
+  });
+  const q = fluidQuery.trim().toLowerCase();
+  function codeCell(c){
+    const sub = c.tickOnly ? "" : (c.name?`<span class="cn">${esc(c.name)}</span>`:"") + kclMark(c) + (c.note?`<span class="cn shelfnote">${esc(c.note)}</span>`:"");
+    const on = favIds.has(c.id);
+    const nm = fluidSearchText(c);
+    const hide = q && !nm.includes(q);
+    return `<div class="codewrap" data-name="${esc(nm)}"${hide?' style="display:none"':""}>
+      <button type="button" class="codebtn${used.has(c.id)?" on":""}${c.kcl?" kcl":""}" data-act="add-code" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}">
+        ${esc(displayCodeLabel(c))}${sub}
+      </button>
+      <button type="button" class="starbtn${on?" on":""}" data-act="star-fluid" data-cid="${esc(c.id)}" aria-label="${on?"Unstar":"Star"}">${on?"★":"☆"}</button>
+    </div>`;
+  }
+  function blockVisible(list){
+    return list.some(c => !q || fluidSearchText(c).includes(q));
+  }
+  const favBlock = favs.length && blockVisible(favs)
+    ? `<div class="favblock"><h3>Favourites</h3><div class="codes">${favs.map(codeCell).join("")}</div></div>`
+    : (favs.length && q ? "" : (favs.length ? `<div class="favblock"><h3>Favourites</h3><div class="codes">${favs.map(codeCell).join("")}</div></div>` : ""));
+  const groupBlocks = FLUID_GROUPS.map(g => {
+    const list = groups[g.id]||[];
+    if (!list.length || !blockVisible(list)) return "";
+    return `<div class="fluid-group" data-group="${esc(g.id)}"><h3>${esc(g.label)}</h3><div class="codes">${list.map(codeCell).join("")}</div></div>`;
+  }).join("");
+  return `
+    <input class="search fluid-search" data-act="filter-fluid" placeholder="Search codes or names" type="search" enterkeyhint="search" value="${esc(fluidQuery)}">
+    ${favBlock}
+    ${groupBlocks}
+  `;
+}
+
 function codesForWardSections(wardId){
   const w = wardById(wardId);
   const sid = w ? w.siteId : currentSiteId();
@@ -3706,9 +4012,10 @@ function render(opts){
 function renderStay(){ keepScroll = true; render({keepScroll:true}); }
 
 function renderSiteToggle(){
-  if (!S.sites || S.sites.length<2) return "";
+  const sites = visibleSites();
+  if (!sites || sites.length<2) return "";
   const cur = currentSiteId();
-  return `<div class="sitetog" role="tablist" aria-label="Site">${S.sites.map(s =>
+  return `<div class="sitetog" role="tablist" aria-label="Site">${sites.map(s =>
     `<button type="button" role="tab" aria-selected="${s.id===cur?"true":"false"}" class="${s.id===cur?"on":""}" data-act="set-site" data-id="${esc(s.id)}">${esc(s.name)}</button>`
   ).join("")}</div>`;
 }
@@ -3885,7 +4192,8 @@ function renderRoundList(z){
   const pop = popularity();
   const wards = scheduledWards(currentSiteId(), z.iso);
   const call = onCallWards(currentSiteId());
-  if (!wards.length && !call.length) return `<div class="card empty">No wards on the round yet. Add or turn some on in Setup.</div>`;
+  const addWardBtn = `<div class="btnrow add-ward-row" style="margin-top:12px"><button type="button" class="btn" data-act="add-round-ward">Add a ward</button></div>`;
+  if (!wards.length && !call.length) return renderHero(z) + `<div class="card empty">No wards on the round yet. Add a ward here, or turn some on in Setup.</div>` + addWardBtn + brandFoot();
   const next = wards.find(w => !isDone(r.wards[w.id]));
   const nextBtn = next ? `<button type="button" class="nextup" data-act="open-ward" data-id="${esc(next.id)}"><span aria-hidden="true">🚀</span><span class="grow"><small>Next up</small>${esc(next.name)}</span><span class="arrow" aria-hidden="true">›</span></button>` : "";
   const scheduled = wards.length
@@ -3896,7 +4204,7 @@ function renderRoundList(z){
     call.map(w => renderWardButton(w, r, pop, "○", "oncall")).join("") +
     `</div>`
   ) : "";
-  return renderHero(z) + nextBtn + scheduled + callBlock + brandFoot();
+  return renderHero(z) + nextBtn + scheduled + callBlock + addWardBtn + brandFoot();
 }
 
 function renderRoundWard(z){
@@ -3905,7 +4213,6 @@ function renderRoundWard(z){
   const r = todayRound();
   const e = wardEntry(r, w.id);
   const used = new Set((e.lines||[]).map(l => l.codeId));
-  const sections = codesForWardSections(w.id);
   const lineHtml = (e.lines||[]).map(l => {
     const c = codeById(l.codeId);
     if (!c) return "";
@@ -3929,18 +4236,7 @@ function renderRoundWard(z){
       <button class="btn ghost" data-act="remove-line" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}" aria-label="Remove">✕</button>
     </div>`;
   }).join("") || `<div class="muted">Tap a code to add one box. Quantity is optional. Tap box/ea beside the count for single packets.</div>`;
-  function codeBtns(list){
-    return list.map(c => {
-      const sub = c.tickOnly ? "" : (c.name?`<span class="cn">${esc(c.name)}</span>`:"") + kclMark(c) + (c.note?`<span class="cn shelfnote">${esc(c.note)}</span>`:"");
-      return `<button type="button" class="codebtn${used.has(c.id)?" on":""}${c.kcl?" kcl":""}" data-act="add-code" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}">
-        ${esc(displayCodeLabel(c))}${sub}
-      </button>`;
-    }).join("");
-  }
-  const popularBlock = sections.popular.length
-    ? `<h3>Popular</h3><div class="codes">${codeBtns(sections.popular)}</div>`
-    : "";
-  const restBlock = `<h3>${sections.popular.length?"All other fluids":"Codes"}</h3><div class="codes">${codeBtns(sections.rest)}</div>`;
+  const picker = renderFluidPicker(w, used);
   const st = e.status;
   const sp = siteProgress(w.siteId);
   const pct = sp.total ? Math.round(sp.done/sp.total*100) : 0;
@@ -3958,8 +4254,7 @@ function renderRoundWard(z){
     ${renderUsualNeeds(w.id, z.iso, true)}
     <div class="card" style="margin-top:12px"><h2>This ward</h2>${lineHtml}</div>
     <button type="button" class="scanbtn" data-act="scan-ward" data-wid="${esc(w.id)}"><span aria-hidden="true">📷</span>Scan barcode</button>
-    ${popularBlock}
-    ${restBlock}
+    ${picker}
     <div class="btnrow">
       <button class="btn block" data-act="other-code" data-wid="${esc(w.id)}">Other code…</button>
     </div>
@@ -4659,7 +4954,8 @@ function renderStock(){
   const onhand = `<h2 style="margin:16px 4px 8px">On hand</h2>
     <p class="muted" style="margin:0 4px 8px">Calculated in real time as you enter each ward: last stocktake, plus deliveries added since, minus fluids entered on the wards. Unticking puts the quantity back. Carry-over and transfer do not deduct until ticked. Remaining stock becomes the next day’s starting stocktake.</p>
     ${renderOnHandSite(SITE_POW)}
-    ${renderOnHandSite(SITE_CH)}`;
+    ${renderOnHandSite(SITE_CH)}
+    ${prabinAreaOn()?renderOnHandSite(SITE_PRABIN):""}`;
   return form + add + onhand + renderParStock() + renderStocktakeCard() + `<p class="muted">Par stock is set in whole boxes, per hospital, in the Par stock card and is shared. Each/box pack sizes can be set in Setup. On-hand figures turn red at 5 boxes or fewer. Each hospital has its own storeroom.</p>` + brandFoot();
 }
 function renderParStockSite(siteId){
@@ -4689,6 +4985,7 @@ function renderParStock(){
     <p class="muted">Set a par in whole boxes for each hospital. The Order tab pre-fills the shortfall (par minus on hand now). Leave par blank if you’ll type the order yourself. Changes are shared with both phones.</p>
     ${renderParStockSite(SITE_POW)}
     ${renderParStockSite(SITE_CH)}
+    ${prabinAreaOn()?renderParStockSite(SITE_PRABIN):""}
   </div>`;
 }
 
@@ -4968,9 +5265,9 @@ function renderSetup(){
       ${c.kcl?'<span class="chip kcl">KCl</span>':''}${c.note?`<span class="shelfnote">${esc(c.note)}</span>`:""}
     </div>`;
   }).join("");
-  const siteRows = S.sites.map(x => `<div class="setup-item">
+  const siteRows = visibleSites().filter(x => x.id!==SITE_PRABIN).map(x => `<div class="setup-item">
     <input class="search grow" style="margin:0" data-act="site-name" data-id="${esc(x.id)}" value="${esc(x.name)}">
-    ${S.sites.length>1?`<button class="btn ghost danger" data-act="site-del" data-id="${esc(x.id)}">Remove</button>`:""}
+    ${!["s-pow","s-childrens","s-pow-prabin"].includes(x.id) && visibleSites().length>1?`<button class="btn ghost danger" data-act="site-del" data-id="${esc(x.id)}">Remove</button>`:""}
   </div>`).join("");
   return `
     <div class="card">
@@ -4995,10 +5292,15 @@ function renderSetup(){
       ${siteRows}
       <div class="btnrow"><button class="btn" data-act="site-add">Add site</button></div>
     </div>
+    <div class="card">
+      <h2>Trial areas</h2>
+      <p class="muted">Off by default. This switch stays on this phone only, so the area does not appear on other phones unless it is turned on there.</p>
+      <label class="setup-item"><input type="checkbox" data-act="toggle-prabin" ${prabinAreaOn()?"checked":""}> Show Prabin's POW area (trial)</label>
+    </div>
     <div class="card"><h2>Wards — ${esc(site?site.name:"this site")}</h2>
       <p class="muted">Tick to include. Delivery days drive today’s list; on-call wards stay in a separate list and are never auto-scheduled. Private notes stay on this phone.</p>
       ${wardRows}
-      <div class="btnrow"><button class="btn" data-act="ward-add">Add ward</button></div>
+      <div class="btnrow"><button class="btn" data-act="ward-add">Add a ward</button></div>
     </div>
     <div class="card"><h2>Codes — ${esc(site?site.name:"this site")}</h2>
       <p class="muted">Counts default to boxes. Tap box/ea beside a count for single packets. Names are optional.</p>
@@ -5490,7 +5792,8 @@ document.addEventListener("click", (ev) => {
     if (i<0 || j<0 || j>=list.length) return;
     const tmp = list[i]; list[i]=list[j]; list[j]=tmp;
     list.forEach((w,k)=>w.order=k);
-    save(); render();
+    list.forEach(w => shareTouchWardDef(w));
+    save(); render(); shareKick();
   }
   if (act==="ward-day"){
     const w = wardById(b.dataset.id); if (!w) return;
@@ -5500,20 +5803,32 @@ document.addEventListener("click", (ev) => {
     if (days.includes(d)) days = days.filter(x => x!==d);
     else days = days.concat([d]).sort((a,c)=>a-c);
     w.days = days;
-    save(); render();
+    shareTouchWardDef(w);
+    save(); render(); shareKick();
     return;
   }
-  if (act==="ward-add"){
-    promptDlg("Add ward", [{label:"Abbreviation", placeholder:"e.g. 4n"}], ([name]) => {
-      name = String(name||"").trim(); if (!name) return;
-      const id = "w-"+slug(name)+"-"+uid("");
-      const sid = currentSiteId();
-      const max = S.wards.filter(w=>w.siteId===sid).reduce((m,w)=>Math.max(m,w.order),-1);
-      const w = {id, name, order:max+1, siteId:sid, enabled:true, building:"", notes:"", privateNote:"", onCall:false};
-      if (sid===SITE_POW) w.days = [2,4];
-      S.wards.push(w);
-      save(); render();
+  if (act==="ward-add" || act==="add-round-ward"){
+    promptDlg("Add a ward", [{label:"Ward name", placeholder:"e.g. 4n"}], ([name]) => {
+      const w = addCustomWard(name, currentSiteId());
+      if (w) render();
     });
+  }
+  if (act==="star-fluid"){
+    ev.preventDefault();
+    ev.stopPropagation();
+    const sid = currentSiteId();
+    toggleStar(sid, b.dataset.cid);
+    renderStay();
+    return;
+  }
+  if (act==="toggle-prabin"){
+    S.settings.showPrabinArea = !!b.checked;
+    if (!S.settings.showPrabinArea && S.settings.currentSiteId===SITE_PRABIN){
+      S.settings.currentSiteId = SITE_CH;
+    }
+    save();
+    render();
+    return;
   }
   if (act==="code-add"){
     const sid = currentSiteId();
@@ -5558,14 +5873,17 @@ document.addEventListener("change", (ev) => {
   if (act==="delivery"){ ensureDraft(z).expectedDelivery = t.value; save(); }
   if (act==="ward-on"){
     const w = wardById(t.dataset.id); if (!w) return;
-    w.enabled = t.checked; save(); render();
+    w.enabled = t.checked;
+    shareTouchWardDef(w);
+    save(); render(); shareKick();
   }
   if (act==="ward-oncall"){
     const w = wardById(t.dataset.id); if (!w) return;
     w.onCall = t.checked;
     if (w.onCall) w.days = [];
-    else if (!Array.isArray(w.days) || !w.days.length) w.days = (w.siteId===SITE_POW) ? [2,4] : [1,2,3,4,5];
-    save(); render();
+    else if (!Array.isArray(w.days) || !w.days.length) w.days = (w.siteId===SITE_POW || w.siteId===SITE_PRABIN) ? [2,4] : [1,2,3,4,5];
+    shareTouchWardDef(w);
+    save(); render(); shareKick();
   }
   if (act==="code-par"){
     const c = codeById(t.dataset.id); if (!c) return;
@@ -5592,6 +5910,17 @@ document.addEventListener("input", (ev) => {
       row.style.display = !q || (row.dataset.name||"").includes(q) ? "" : "none";
     });
   }
+  if (act==="filter-fluid"){
+    fluidQuery = t.value;
+    const q = t.value.trim().toLowerCase();
+    document.querySelectorAll(".codewrap").forEach(row => {
+      row.style.display = !q || (row.dataset.name||"").includes(q) ? "" : "none";
+    });
+    document.querySelectorAll(".fluid-group, .favblock").forEach(block => {
+      const any = Array.from(block.querySelectorAll(".codewrap")).some(el => el.style.display !== "none");
+      block.style.display = any ? "" : "none";
+    });
+  }
   if (act==="stock-count"){
     setStockDraft(t.dataset.site || currentSiteId(), t.dataset.cid, t.value);
     save();
@@ -5611,15 +5940,21 @@ document.addEventListener("input", (ev) => {
   }
   if (act==="ward-name"){
     const w = wardById(t.dataset.id); if (!w) return;
-    w.name = t.value; save();
+    w.name = t.value;
+    shareTouchWardDef(w);
+    save(); shareKick();
   }
   if (act==="ward-building"){
     const w = wardById(t.dataset.id); if (!w) return;
-    w.building = t.value; save();
+    w.building = t.value;
+    shareTouchWardDef(w);
+    save(); shareKick();
   }
   if (act==="ward-notes"){
     const w = wardById(t.dataset.id); if (!w) return;
-    w.notes = t.value; save();
+    w.notes = t.value;
+    shareTouchWardDef(w);
+    save(); shareKick();
   }
   if (act==="ward-private"){
     const w = wardById(t.dataset.id); if (!w) return;
@@ -5689,6 +6024,7 @@ document.addEventListener("change", (ev) => {
 
 window.addEventListener("hashchange", () => {
   if (!/^#stock/.test(location.hash)) stockQuery = "";
+  if (!/^#round\//.test(location.hash)) fluidQuery = "";
   const raw = (location.hash||"").replace(/^#/, "");
   if (raw.indexOf("history/")===0){
     const day = decodeURIComponent(raw.slice(8));
