@@ -473,7 +473,7 @@ h3{margin:10px 0 6px}
 (function(){
 "use strict";
 
-const VERSION = "1.5.0";
+const VERSION = "1.5.1";
 const STORE = "ward-run-v1";
 const TZ = "Australia/Sydney";
 const DOW = {Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6};
@@ -2050,12 +2050,12 @@ function renderRemainingTable(siteId){
   const tot = remainingTotals(rows);
   const tr = rows.map(r => {
     const c = r.code;
-    const lab = [displayCode(c), c.name].filter(Boolean).join(" ");
+    const packLab = r.pack ? r.pack + "/box" : "no pack size";
     return `<tr data-cid="${esc(c.id)}">
-      <td><div class="code">${esc(displayCode(c))}</div><div class="muted">${esc(c.name||"")}</div></td>
-      <td>${esc(formatOnHand(r.start))}</td>
-      <td>${esc(formatMoved(r.delivered))}</td>
-      <td>${esc(formatOnHand(r.onhand))}</td>
+      <td><div class="code">${esc(displayCode(c))}</div><div class="muted">${esc(c.name||"")} · ${esc(packLab)}</div></td>
+      <td>${esc(formatStockQty(r.start))}</td>
+      <td>${esc(formatStockQty(r.delivered))}</td>
+      <td>${esc(formatStockQty(r.onhand))}</td>
     </tr>`;
   }).join("");
   return `<div class="card" data-remain-site="${esc(siteId)}">
@@ -2063,14 +2063,14 @@ function renderRemainingTable(siteId){
     <table class="rem-table">
       <thead><tr><th>Item</th><th>Stocktake</th><th>Delivered today</th><th>On hand now</th></tr></thead>
       <tbody>${tr}</tbody>
-      <tfoot><tr class="tot"><td>Total</td><td>${esc(formatOnHand(tot.start))}</td><td>${esc(formatMoved(tot.delivered))}</td><td>${esc(formatOnHand(tot.onhand))}</td></tr></tfoot>
+      <tfoot><tr class="tot"><td>Total</td><td>${esc(formatStockTotal(rows,"start"))}</td><td>${esc(formatStockTotal(rows,"delivered"))}</td><td>${esc(formatStockTotal(rows,"onhand"))}</td></tr></tfoot>
     </table>
   </div>`;
 }
 function renderStocktakeCard(){
   return `<div class="card stk" id="stock-remaining">
     <h2>Stocktake</h2>
-    <p class="muted">Last stocktake, plus deliveries added since, minus fluids ticked as delivered on the wards today (since that save). On hand is full boxes only — loose packets do not count — and matches the On hand section. Further each ticks still come out of an opened box first.</p>
+    <p class="muted">Last stocktake, plus deliveries added since, minus fluids ticked as delivered on the wards today (since that save). Boxes and each (single packets) are converted to one packet total using packets per box, then remaining stock is shown as full boxes plus loose packets. Further each ticks still come out of an opened box first. Set or change packets per box in Setup (Each/box).</p>
     ${renderRemainingTable(SITE_POW)}
     ${renderRemainingTable(SITE_CH)}
     <div class="btnrow">
@@ -2102,9 +2102,9 @@ function stocktakeRows(){
         displayCode(c),
         c.name||"",
         r.pack || "",
-        formatOnHand(r.start),
-        formatMoved(r.delivered),
-        formatOnHand(r.onhand),
+        formatStockQty(r.start),
+        formatStockQty(r.delivered),
+        formatStockQty(r.onhand),
         when
       ]);
     });
@@ -4248,6 +4248,43 @@ function formatMoved(u){
   if (!box) return ea + " ea";
   return box + " box, " + ea + " ea";
 }
+function formatStockQty(u){
+  /* Remaining / delivered stock as full boxes plus loose packets, from a single packet total. */
+  if (!u) return "0";
+  const pack = u.pack || null;
+  if (pack && u.total!=null){
+    const total = Number(u.total)||0;
+    const sign = total<0 ? "-" : "";
+    const abs = Math.abs(total);
+    const box = Math.floor(abs / pack);
+    const rem = abs % pack;
+    if (!box && !rem) return "0";
+    if (!rem) return sign + box + " box";
+    if (!box) return sign + rem + " ea";
+    return sign + box + " box + " + rem + " ea";
+  }
+  const box = (u.box)||0, ea = (u.ea)||0;
+  if (!box && !ea) return "0";
+  if (!ea) return box + " box" + (pack ? "" : " (no pack size)");
+  if (!box) return ea + " ea";
+  return box + " box + " + ea + " ea" + (pack ? "" : " (no pack size)");
+}
+function stockRowSpend(u){
+  if (u && u.pack && u.total!=null){
+    return {packets:u.total, known:true, boxesOnly:0, pack:u.pack, mixedPacks:false, packs:[u.pack]};
+  }
+  const s = emptySpend();
+  s.known = false;
+  s.boxesOnly = (u && u.box)||0;
+  return s;
+}
+function formatStockTotal(rows, field){
+  const spend = (rows||[]).reduce((acc, r) => mergeSpend(acc, stockRowSpend(r[field])), emptySpend());
+  if (spend.known && !spend.mixedPacks && spend.pack){
+    return formatStockQty({pack:spend.pack, total:spend.packets});
+  }
+  return formatSpend(spend);
+}
 function onHandIsZero(u){ return ((u&&u.box)||0)===0 && ((u&&u.ea)||0)===0; }
 function onHandIsNeg(u){
   if (u && u.pack && u.total!=null) return u.total<0;
@@ -4504,7 +4541,7 @@ function renderOnHandSite(siteId){
     const row = `<div class="oh-row ${hide|| (zero&&!neg)?"stock-unused":""}" data-cid="${esc(c.id)}" data-name="${esc(nm)}">
       <div class="grow"><div class="code">${esc(displayCode(c))} ${kclBadge(c)}</div>
         <div class="muted">${meta?esc(meta):""}${c.note?" · "+esc(c.note):""}</div></div>
-      <div class="oh-qty ${low?"oh-neg":""}">${esc(formatOnHand(u))}</div>
+      <div class="oh-qty ${low?"oh-neg":""}">${esc(formatStockQty(u))}</div>
       ${hide?`<button type="button" class="btn ghost" data-act="stock-restore" data-site="${esc(siteId)}" data-cid="${esc(c.id)}">Bring back</button>`:""}
     </div>`;
     if (hide) unused.push(row);
@@ -4549,7 +4586,7 @@ function renderStock(){
   })).join("");
   const form = `<div class="card">
     <h2>Count — ${esc(siteName)} storeroom</h2>
-    <p class="muted">Enter today’s counts, then Save. Save replaces the on-hand total for each item you enter (a fresh stocktake). Leave a field blank to keep its previous total. Fields then reset to 0, ready for the next count.</p>
+    <p class="muted">Enter today’s counts in whole boxes, then Save. Save replaces the on-hand total for each item you enter (a fresh stocktake). Leave a field blank to keep its previous total. Fields then reset to 0, ready for the next count. Ward deliveries in boxes or each are deducted as packets using packets per box.</p>
     <button type="button" class="scanbtn" data-act="scan-stock"><span aria-hidden="true">📷</span>Scan to find an item</button>
     <input class="search" id="${qid}" data-act="filter-stock" placeholder="Search codes" type="search" enterkeyhint="search" value="${esc(stockQuery)}">
     ${formRows || '<div class="muted">No codes yet.</div>'}
