@@ -462,7 +462,7 @@ h3{margin:10px 0 6px}
 (function(){
 "use strict";
 
-const VERSION = "1.4.8";
+const VERSION = "1.4.9";
 const STORE = "ward-run-v1";
 const TZ = "Australia/Sydney";
 const DOW = {Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6};
@@ -2370,7 +2370,8 @@ const SHARE_TABLE = {
   ticked: "ward_run_stock_ticked_at_save",
   deliveries: "ward_run_stock_deliveries",
   restored: "ward_run_stock_restored",
-  pack: "ward_run_code_pack"
+  pack: "ward_run_code_pack",
+  par: "ward_run_code_par"
 };
 
 let shareBusy = false;
@@ -2378,7 +2379,7 @@ let shareAgain = false;
 let shareTimer = 0;
 let shareApplying = false;
 let shareStarted = false;
-const shareRemoteAt = {ticks:{}, lines:{}, wards:{}, stock:{}, baseline:{}, ticked:{}, deliveries:{}, restored:{}, pack:{}};
+const shareRemoteAt = {ticks:{}, lines:{}, wards:{}, stock:{}, baseline:{}, ticked:{}, deliveries:{}, restored:{}, pack:{}, par:{}};
 
 function shareNow(){ return new Date().toISOString(); }
 function tsMs(s){ const n = Date.parse(s||""); return Number.isFinite(n) ? n : 0; }
@@ -2462,6 +2463,7 @@ function ensureShare(s){
   sh.deliveryAt = sh.deliveryAt && typeof sh.deliveryAt==="object" ? sh.deliveryAt : {};
   sh.restoredAt = sh.restoredAt && typeof sh.restoredAt==="object" ? sh.restoredAt : {};
   sh.packAt = sh.packAt && typeof sh.packAt==="object" ? sh.packAt : {};
+  sh.parAt = sh.parAt && typeof sh.parAt==="object" ? sh.parAt : {};
   if (!sh.status) sh.status = navigator.onLine ? "pending" : "offline";
   return sh;
 }
@@ -2505,6 +2507,7 @@ function shareSeedLocal(s){
   });
   (s.codes||[]).forEach(c => {
     if (c && c.id && c.eachPerBox) sh.packAt[(c.siteId||"")+"|"+c.id] = at;
+    if (c && c.id && Number(c.par)>0) sh.parAt[(c.siteId||"")+"|"+c.id] = at;
   });
   sh.seeded = 1;
   sh.status = navigator.onLine ? "pending" : "offline";
@@ -2579,6 +2582,13 @@ function shareTouchPack(c){
   const sh = ensureShare();
   const siteId = c.siteId || currentSiteId();
   sh.packAt[siteId+"|"+c.id] = shareNow();
+  sh.status = navigator.onLine ? "pending" : "offline";
+}
+function shareTouchPar(c){
+  if (shareApplying || !c || !c.id) return;
+  const sh = ensureShare();
+  const siteId = c.siteId || currentSiteId();
+  sh.parAt[siteId+"|"+c.id] = shareNow();
   sh.status = navigator.onLine ? "pending" : "offline";
 }
 function shareAfterMove(rec){
@@ -2864,6 +2874,23 @@ function applyRemotePack(row){
   else c.eachPerBox = Math.floor(n);
   return true;
 }
+function applyRemotePar(row){
+  const siteId = row.site_id, cid = row.code_id;
+  if (!siteId || !cid) return false;
+  const key = siteId+"|"+cid;
+  const sh = ensureShare();
+  if (!tsNewer(row.updated_at, sh.parAt[key])) {
+    shareRemoteAt.par[key] = row.updated_at;
+    return false;
+  }
+  sh.parAt[key] = row.updated_at;
+  shareRemoteAt.par[key] = row.updated_at;
+  const c = (S.codes||[]).find(x => x.id===cid && (!x.siteId || x.siteId===siteId));
+  if (!c) return false;
+  const n = Number(row.par_boxes);
+  c.par = (Number.isFinite(n) && n>0) ? Math.floor(n) : 0;
+  return true;
+}
 function collectPushTicks(){
   const sh = ensureShare();
   const rows = [];
@@ -3008,11 +3035,26 @@ function collectPushStock(){
       actor: staffName()||null
     });
   });
-  return {headers, baseline, ticked, deliveries, restored, pack};
+  const par=[];
+  Object.keys(sh.parAt).forEach(key => {
+    if (!tsNewer(sh.parAt[key], shareRemoteAt.par[key])) return;
+    const i = key.indexOf("|"); if (i<0) return;
+    const siteId = key.slice(0,i), cid = key.slice(i+1);
+    const c = (S.codes||[]).find(x => x.id===cid && (!x.siteId || x.siteId===siteId));
+    const n = c ? Number(c.par) : 0;
+    par.push({
+      site_id:siteId, code_id:cid,
+      par_boxes: (Number.isFinite(n) && n>0) ? Math.floor(n) : 0,
+      updated_at: sh.parAt[key],
+      device_id: sh.deviceId,
+      actor: staffName()||null
+    });
+  });
+  return {headers, baseline, ticked, deliveries, restored, pack, par};
 }
 
 async function sharePull(){
-  const [ticks, lines, wards, stocktakes, baseline, ticked, deliveries, restored, pack] = await Promise.all([
+  const [ticks, lines, wards, stocktakes, baseline, ticked, deliveries, restored, pack, par] = await Promise.all([
     shareSelect(SHARE_TABLE.ticks),
     shareSelect(SHARE_TABLE.lines),
     shareSelect(SHARE_TABLE.wards),
@@ -3021,7 +3063,8 @@ async function sharePull(){
     shareSelect(SHARE_TABLE.ticked),
     shareSelect(SHARE_TABLE.deliveries),
     shareSelect(SHARE_TABLE.restored),
-    shareSelect(SHARE_TABLE.pack)
+    shareSelect(SHARE_TABLE.pack),
+    shareSelect(SHARE_TABLE.par)
   ]);
   shareApplying = true;
   let changed = false;
@@ -3035,6 +3078,7 @@ async function sharePull(){
     (deliveries||[]).forEach(r => { if (applyRemoteDelivery(r)) changed = true; });
     (restored||[]).forEach(r => { if (applyRemoteRestored(r)) changed = true; });
     (pack||[]).forEach(r => { if (applyRemotePack(r)) changed = true; });
+    (par||[]).forEach(r => { if (applyRemotePar(r)) changed = true; });
     applyOfficialNames(S);
     if (changed) syncCodeStockFromOnHand();
   } finally {
@@ -3054,6 +3098,7 @@ async function sharePush(){
   await shareUpsert(SHARE_TABLE.deliveries, "id", st.deliveries);
   await shareUpsert(SHARE_TABLE.restored, "site_id,code_id", st.restored);
   await shareUpsert(SHARE_TABLE.pack, "site_id,code_id", st.pack);
+  await shareUpsert(SHARE_TABLE.par, "site_id,code_id", st.par);
 }
 
 async function shareSync(){
@@ -3307,6 +3352,24 @@ function defaultDelivery(iso, urgent){
   }
   return addDays(iso, 1);
 }
+function parBoxes(c){
+  const n = Number(c && c.par);
+  return Number.isFinite(n) && n>0 ? Math.floor(n) : 0;
+}
+function setCodePar(c, value){
+  if (!c) return;
+  const n = Number(value);
+  if (value==="" || !Number.isFinite(n) || n<=0) c.par = 0;
+  else c.par = Math.floor(n);
+  shareTouchPar(c);
+  save();
+  shareKick();
+}
+function suggestedOrderQty(siteId, c){
+  const par = parBoxes(c);
+  if (!par) return "";
+  return Math.max(0, par - onHandBoxes(onHandUnits(siteId, c.id)));
+}
 function orderQtyValue(line){
   if (!line || line.qty==="" || line.qty==null) return "";
   const n = Number(line.qty);
@@ -3323,17 +3386,22 @@ function formatOrderLineText(line, c){
 }
 function orderCatalogLines(siteId, prev){
   const pop = popularity();
-  const sitePop = pop.bySite[siteId] || pop.overall;
+  const sitePop = pop.bySite[siteId] || {};
   const rank = rankedIds(sitePop, codeOrder(siteId));
   const seen = new Set();
   const lines = [];
   function add(c){
     if (!c || c.tickOnly || seen.has(c.id)) return;
+    if (c.siteId && c.siteId!==siteId) return;
     seen.add(c.id);
     const p = prev && prev[c.id];
+    const sug = suggestedOrderQty(siteId, c);
+    const edited = !!(p && p.edited);
     lines.push({
       codeId:c.id,
-      qty: p && p.qty!=null && p.qty!=="" ? p.qty : "",
+      qty: edited ? (p.qty==null?"":p.qty) : sug,
+      suggested: sug,
+      edited,
       unit: "box"
     });
   }
@@ -4304,7 +4372,36 @@ function renderStock(){
     <p class="muted" style="margin:0 4px 8px">Calculated in real time: last stocktake, plus deliveries added since, minus fluids ticked as delivered on the wards. Unticking puts the quantity back. Carry-over and transfer do not deduct until ticked.</p>
     ${renderOnHandSite(SITE_POW)}
     ${renderOnHandSite(SITE_CH)}`;
-  return form + add + onhand + renderStocktakeCard() + `<p class="muted">Set par levels and each-per-box counts in Setup. A low flag appears when the on-hand count is below par. Each hospital has its own storeroom.</p>` + brandFoot();
+  return form + add + onhand + renderParStock() + renderStocktakeCard() + `<p class="muted">Par stock is set in whole boxes, per hospital, in the Par stock card and is shared. Each/box pack sizes can be set in Setup. On-hand figures turn red at 5 boxes or fewer. Each hospital has its own storeroom.</p>` + brandFoot();
+}
+function renderParStockSite(siteId){
+  const site = siteById(siteId);
+  const title = site ? site.name : siteId;
+  const q = stockQuery.trim().toLowerCase();
+  const rows = stockCodes(siteId).filter(c => !c.tickOnly).map(c => {
+    const meta = displayMeta(c);
+    const nm = (displayCode(c)+" "+(meta||"")+" "+(c.note||"")).toLowerCase();
+    const u = onHandUnits(siteId, c.id);
+    const par = parBoxes(c);
+    return `<div class="par-row line" data-cid="${esc(c.id)}" data-name="${esc(nm)}"${q && !nm.includes(q) ? ' style="display:none"' : ""}>
+      <div class="grow"><div class="code">${esc(displayCode(c))} ${kclBadge(c)}</div>
+        <div class="muted">${meta?esc(meta):""}</div>
+        <div class="muted">On hand: <span class="oh-qty ${onHandBoxes(u)<=5?"oh-neg":""}">${esc(formatOnHand(u))}</span></div>
+      </div>
+      <label class="muted" style="flex:none;text-align:right">Par (box)
+        <input class="stock-in" data-act="code-par" data-id="${esc(c.id)}" inputmode="numeric" type="number" min="0" step="1" value="${par?esc(String(par)):""}" placeholder="—" aria-label="Par boxes for ${esc(displayCode(c))}">
+      </label>
+    </div>`;
+  }).join("");
+  return `<div class="card" data-par-site="${esc(siteId)}"><h2>${esc(title)}</h2>${rows || '<div class="muted">No codes yet.</div>'}</div>`;
+}
+function renderParStock(){
+  return `<div class="card" id="par-stock">
+    <h2>Par stock</h2>
+    <p class="muted">Set a par in whole boxes for each hospital. The Order tab pre-fills the shortfall (par minus on hand now). Leave par blank if you’ll type the order yourself. Changes are shared with both phones.</p>
+    ${renderParStockSite(SITE_POW)}
+    ${renderParStockSite(SITE_CH)}
+  </div>`;
 }
 
 function ensureDraft(z){
@@ -4318,6 +4415,14 @@ function ensureDraft(z){
       draftOrder.lines = orderCatalogLines(siteId, prev);
     } else {
       (draftOrder.lines||[]).forEach(l => { l.unit = "box"; });
+      const prev = {};
+      (draftOrder.lines||[]).forEach(l => {
+        let edited = !!l.edited;
+        if (!draftOrder.parFill && l.qty!="" && l.qty!=null && String(l.qty)!==String(l.suggested||"")) edited = true;
+        prev[l.codeId] = {qty:l.qty, unit:"box", edited};
+      });
+      draftOrder.lines = orderCatalogLines(siteId, prev);
+      draftOrder.parFill = 1;
     }
     return draftOrder;
   }
@@ -4327,6 +4432,7 @@ function ensureDraft(z){
     urgent: !(isOrderDay(z)),
     expectedDelivery: defaultDelivery(z.iso, !(isOrderDay(z))),
     manualQty: 1,
+    parFill: 1,
     lines: orderCatalogLines(siteId, null)
   };
   return draftOrder;
@@ -4338,17 +4444,21 @@ function renderOrder(z){
     const c = codeById(l.codeId);
     if (!c) return "";
     const pack = packSize(c);
-    const oh = formatOnHand(onHandUnits(d.siteId, c.id));
+    const units = onHandUnits(d.siteId, c.id);
+    const oh = formatOnHand(units);
+    const low = onHandBoxes(units) <= 5;
+    const par = parBoxes(c);
     const nopack = !pack ? `<span class="nopack">No pack size</span>` : "";
     const qtyVal = l.qty==="" || l.qty==null ? "" : l.qty;
+    const parLabel = par ? ("Par: " + par + " box") : "No par";
     return `<div class="line" data-cid="${esc(c.id)}">
       <div class="grow"><div class="code">${esc(displayCode(c))} ${kclBadge(c)}${nopack}</div>
-        <div class="muted">${esc(c.name||"")}</div>
-        <div class="muted">On hand now: <span class="order-oh">${esc(oh)}</span></div>
+        <div class="muted">${esc(displayMeta(c)||"")}</div>
+        <div class="muted">On hand now: <span class="order-oh oh-qty ${low?"oh-neg":""}">${esc(oh)}</span> · ${esc(parLabel)}</div>
       </div>
       <div class="stepper">
         <button type="button" data-act="order-qty" data-dir="-1" data-cid="${esc(c.id)}" aria-label="Decrease">−</button>
-        <input class="stock-in" data-act="order-qty-in" data-cid="${esc(c.id)}" inputmode="numeric" type="number" min="0" step="1" value="${esc(qtyVal)}" placeholder="0" aria-label="Order boxes for ${esc(displayCode(c))}">
+        <input class="stock-in" data-act="order-qty-in" data-cid="${esc(c.id)}" inputmode="numeric" type="number" min="0" step="1" value="${esc(qtyVal)}" placeholder="" aria-label="Order boxes for ${esc(displayCode(c))}">
         <button type="button" data-act="order-qty" data-dir="1" data-cid="${esc(c.id)}" aria-label="Increase">+</button>
       </div>
       <button class="btn ghost" data-act="order-remove" data-cid="${esc(c.id)}" aria-label="Remove">✕</button>
@@ -4362,7 +4472,7 @@ function renderOrder(z){
         <input type="date" data-act="delivery" value="${esc(d.expectedDelivery)}">
         <p class="muted">${esc(prettyDate(d.expectedDelivery))} (Australia/Sydney)</p>
       </div>
-      <p class="muted">On hand now is the same figure as the Stock tab (last stocktake, plus deliveries, minus today’s ticked ward deliveries), as full boxes only. Order in whole boxes — amounts start empty, and WhatsApp includes only lines with a quantity, in boxes. Lines are sorted by this site’s most-used codes.</p>
+      <p class="muted">On hand now is the same figure as the Stock tab, as full boxes only. If a par is set, the quantity is pre-filled with the shortfall (par minus on hand now) in whole boxes — you can still edit it. Items without a par start empty. WhatsApp includes only lines with a quantity, in boxes. Set par stock on the Stock tab. Lines are sorted by this site’s most-used codes.</p>
     </div>
     <div class="card"><h2>To order</h2>${lines}</div>
     <div class="btnrow">
@@ -4750,13 +4860,16 @@ function changeStock(cid, dir){
 
 function rebuildDraftKeepEdits(z, siteId){
   const prev = {};
-  if (draftOrder) draftOrder.lines.forEach(l => { prev[l.codeId]={qty:l.qty, unit:lineUnit(l)}; });
+  if (draftOrder) draftOrder.lines.forEach(l => {
+    prev[l.codeId]={qty:l.qty, unit:"box", edited:!!l.edited, suggested:l.suggested};
+  });
   draftOrder = {
     date: z.iso,
     siteId,
     urgent: draftOrder ? draftOrder.urgent : !isOrderDay(z),
     expectedDelivery: draftOrder && draftOrder.siteId===siteId ? draftOrder.expectedDelivery : defaultDelivery(z.iso, draftOrder?draftOrder.urgent:!isOrderDay(z)),
     manualQty: 1,
+    parFill: 1,
     lines: orderCatalogLines(siteId, prev)
   };
 }
@@ -4985,6 +5098,7 @@ document.addEventListener("click", (ev) => {
     const next = Math.max(0, (Number(line.qty)||0) + Number(b.dataset.dir));
     line.qty = next===0 ? "" : next;
     line.unit = "box";
+    line.edited = true;
     save(); renderStay();
   }
   if (act==="order-unit"){
@@ -5018,7 +5132,7 @@ document.addEventListener("click", (ev) => {
     const d = ensureDraft(z);
     rebuildDraftKeepEdits(z, d.siteId);
     save(); renderStay();
-    toast("On hand updated");
+    toast("Order amounts updated from par and on hand");
   }
   if (act==="order-copy"){
     const text = orderMessage(ensureDraft(z));
@@ -5145,7 +5259,7 @@ document.addEventListener("change", (ev) => {
   }
   if (act==="code-par"){
     const c = codeById(t.dataset.id); if (!c) return;
-    c.par = Math.max(0, Number(t.value)||0); save();
+    setCodePar(c, t.value);
   }
   if (act==="stock-delivery-code"){
     deliveryDraft(t.dataset.site || currentSiteId()).codeId = t.value;
@@ -5164,7 +5278,7 @@ document.addEventListener("input", (ev) => {
   if (act==="filter-stock"){
     stockQuery = t.value;
     const q = t.value.trim().toLowerCase();
-    document.querySelectorAll(".stockrow, .oh-row").forEach(row => {
+    document.querySelectorAll(".stockrow, .oh-row, .par-row").forEach(row => {
       row.style.display = !q || (row.dataset.name||"").includes(q) ? "" : "none";
     });
   }
@@ -5178,6 +5292,7 @@ document.addEventListener("input", (ev) => {
     if (!line) return;
     line.qty = t.value;
     line.unit = "box";
+    line.edited = true;
     save();
   }
   if (act==="stock-delivery-qty"){
@@ -5216,7 +5331,7 @@ document.addEventListener("input", (ev) => {
   if (act==="set-wa"){ S.settings.waNumber = t.value; save(); }
   if (act==="code-par"){
     const c = codeById(t.dataset.id); if (!c) return;
-    c.par = Math.max(0, Number(t.value)||0); save();
+    setCodePar(c, t.value);
   }
   if (act==="code-pack"){
     const c = codeById(t.dataset.id); if (!c || c.tickOnly) return;
