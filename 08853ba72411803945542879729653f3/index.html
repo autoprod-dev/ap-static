@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!--! Ward Run by Autoprod. © 2026 Autoprod. All rights reserved. Not for resale or redistribution. -->
+<!--! Fluid Run by Autoprod. © 2026 Autoprod. All rights reserved. Not for resale or redistribution. -->
 <html lang="en-AU">
 <head>
 <meta charset="utf-8">
@@ -10,9 +10,9 @@
 <meta name="theme-color" content="#4c1d95">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Ward Run">
-<meta name="description" content="Offline helper for a daily ward stock run. Data stays on this phone.">
-<title>Ward Run</title>
+<meta name="apple-mobile-web-app-title" content="Fluid Run">
+<meta name="description" content="Offline helper for a daily fluid run. Data stays on this phone.">
+<title>Fluid Run</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -468,12 +468,12 @@ h3{margin:10px 0 6px}
 </nav>
 <dialog id="dlg"></dialog>
 <dialog id="scandlg" aria-label="Barcode scanner"></dialog>
-<noscript><p style="padding:20px">Ward Run needs JavaScript turned on.</p></noscript>
+<noscript><p style="padding:20px">Fluid Run needs JavaScript turned on.</p></noscript>
 <script>
 (function(){
 "use strict";
 
-const VERSION = "1.5.2";
+const VERSION = "1.6.0";
 const STORE = "ward-run-v1";
 const TZ = "Australia/Sydney";
 const DOW = {Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6};
@@ -1113,7 +1113,7 @@ function weekGrandBag(monday){
 function reportPlainText(monday, layout){
   layout = layout || reportLayout || "item";
   if (layout==="day") layout = "grid";
-  const heading = "Delivered fluids – week of " + weekHeading(monday);
+  const heading = "Fluid Run – Delivered fluids – week of " + weekHeading(monday);
   const parts = [heading, "Layout: " + reportLayoutLabel(layout), ""];
   reportSiteList().forEach(site => {
     const days = siteWeekReports(monday, site.id);
@@ -1163,7 +1163,7 @@ function weekSheetRows(site, monday){
   const days = siteWeekReports(monday, site.id);
   const bag = siteWeekBag(days);
   const rows = [];
-  rows.push(["Delivered fluids – week of " + weekHeading(monday)]);
+  rows.push(["Fluid Run – Delivered fluids – week of " + weekHeading(monday)]);
   rows.push([site.name]);
   rows.push([site.name + " total", formatSpend(bag)]);
   rows.push([]);
@@ -1221,7 +1221,7 @@ function exportWeekXlsx(monday){
       X.utils.book_append_sheet(wb, ws, sheetNameFor(site, used));
     });
     const out = X.write(wb, {bookType:"xlsx", type:"array"});
-    downloadBlob(new Blob([out], {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), "ward-run-week-" + monday + ".xlsx");
+    downloadBlob(new Blob([out], {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), "fluid-run-week-" + monday + ".xlsx");
     toast("Excel downloaded · " + reportSiteList().map(s => s.name).join(" and ") + " sheets");
   }).catch(() => toast("Excel export not available"));
 }
@@ -1259,9 +1259,9 @@ function historyRangeTitle(z){
   z = z || zonedNow();
   const kind = historyRangeKind();
   const anchor = historyAnchor(z);
-  if (kind==="week") return "Delivered fluids – week of " + weekHeading(mondayOf(anchor));
-  if (kind==="month") return "Delivered fluids – " + monthHeading(monthOf(anchor));
-  return "Delivered fluids – " + prettyDate(anchor);
+  if (kind==="week") return "Fluid Run – Delivered fluids – week of " + weekHeading(mondayOf(anchor));
+  if (kind==="month") return "Fluid Run – Delivered fluids – " + monthHeading(monthOf(anchor));
+  return "Fluid Run – Delivered fluids – " + prettyDate(anchor);
 }
 function historyRangeFileStamp(z){
   z = z || zonedNow();
@@ -1382,7 +1382,7 @@ function exportHistoryXlsx(){
     const wb = X.utils.book_new();
     X.utils.book_append_sheet(wb, ws, "Delivered fluids");
     const out = X.write(wb, {bookType:"xlsx", type:"array"});
-    downloadBlob(new Blob([out], {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), "ward-run-history-" + historyRangeFileStamp(z) + ".xlsx");
+    downloadBlob(new Blob([out], {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), "fluid-run-history-" + historyRangeFileStamp(z) + ".xlsx");
     toast("Excel downloaded · " + historyRangeLabel(kind) + " · " + items.length + (items.length===1?" row":" rows"));
   }).catch((err) => { console.error("hist-xlsx", err && (err.stack||err.message||err)); toast("Excel export not available"); });
 }
@@ -2128,7 +2128,7 @@ function exportCsv(){
   const rows = [EXPORT_HEAD].concat(stocktakeRows());
   const q = (v) => { const s = String(v==null?"":v); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s; };
   const text = "\ufeff" + rows.map(r => r.map(q).join(",")).join("\r\n") + "\r\n";
-  downloadBlob(new Blob([text], {type:"text/csv;charset=utf-8"}), "ward-run-stocktake-" + sydneyStamp().file + ".csv");
+  downloadBlob(new Blob([text], {type:"text/csv;charset=utf-8"}), "fluid-run-stocktake-" + sydneyStamp().file + ".csv");
   toast("CSV downloaded · " + (rows.length-1) + " rows");
 }
 function exportXlsx(){
@@ -2140,7 +2140,7 @@ function exportXlsx(){
     const wb = X.utils.book_new();
     X.utils.book_append_sheet(wb, ws, "Stocktake");
     const out = X.write(wb, {bookType:"xlsx", type:"array"});
-    downloadBlob(new Blob([out], {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), "ward-run-stocktake-" + sydneyStamp().file + ".xlsx");
+    downloadBlob(new Blob([out], {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), "fluid-run-stocktake-" + sydneyStamp().file + ".xlsx");
     toast("Excel downloaded · " + rows.length + " rows");
   }).catch(() => toast("Excel export not available — try CSV"));
 }
@@ -3716,7 +3716,7 @@ function renderSiteToggle(){
 function renderBar(z){
   const bar = document.getElementById("appbar");
   const back = route.page==="round-ward" || route.page==="setup" || route.page==="history" || route.page==="report";
-  let title = "Ward Run";
+  let title = "Fluid Run";
   let sub = shortDate(z.iso);
   if (route.page==="round-ward"){
     const w = wardById(route.wardId);
@@ -3743,6 +3743,7 @@ function renderBar(z){
   extra = ""; /* v1.2: progress lives in the hero ring and the ward header */
   const gchips = `<button type="button" class="gchip snd" data-act="sound" aria-pressed="${G.sound?"true":"false"}" aria-label="${G.sound?"Sound and vibration on, tap to mute":"Muted, tap for sound and vibration"}">${G.sound?"🔊":"🔇"}</button>`;
   const siteTog = (route.page==="report") ? "" : renderSiteToggle();
+  document.title = "Fluid Run";
   bar.innerHTML =
     (back ? `<button class="back" data-act="back" aria-label="Back">‹</button>` : "") +
     `<div class="grow"><h1>${esc(title)}</h1><p class="sub">${esc(sub)}</p></div>${extra}${syncChipHtml()}${gchips}` +
@@ -4900,7 +4901,7 @@ function renderReport(z){
   const monday = route.week && /^\d{4}-\d{2}-\d{2}$/.test(route.week) ? mondayOf(route.week) : mondayOf(z.iso);
   const layout = reportLayout==="ward" || reportLayout==="grid" || reportLayout==="day" ? (reportLayout==="day"?"grid":reportLayout) : "item";
   const weekBag = weekGrandBag(monday);
-  const heading = "Delivered fluids – week of " + weekHeading(monday);
+  const heading = "Fluid Run – Delivered fluids – week of " + weekHeading(monday);
   const layoutBtns = [["item","By item"],["grid","Item × day"],["ward","By ward"]].map(([id, lab]) =>
     `<button type="button" data-act="report-layout" data-id="${id}" class="${layout===id?"on":""}">${lab}</button>`
   ).join("");
@@ -5016,7 +5017,7 @@ function renderSetup(){
         <input type="file" id="import-file" accept="application/json,.json" class="hidden">
       </div>
     </div>
-    <p class="brandfoot"><img src="icons/autoprod-logo-64.png" alt="">Ward Run v${esc(VERSION)} · by Autoprod<br>Day, week and stock records are shared with anyone who has this link. This phone also keeps a local copy and works offline. No patient details.<br>© 2026 Autoprod. All rights reserved. Not for resale or redistribution.</p>
+    <p class="brandfoot"><img src="icons/autoprod-logo-64.png" alt="">Fluid Run v${esc(VERSION)} · by Autoprod<br>Day, week and stock records are shared with anyone who has this link. This phone also keeps a local copy and works offline. No patient details.<br>© 2026 Autoprod. All rights reserved. Not for resale or redistribution.</p>
   `;
 }
 
@@ -5197,7 +5198,7 @@ function exportBackup(){
   const blob = new Blob([JSON.stringify(payload, null, 2)], {type:"application/json"});
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = "ward-run-backup-" + zonedNow().iso + ".json";
+  a.download = "fluid-run-backup-" + zonedNow().iso + ".json";
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
   toast("Backup downloaded");
@@ -5207,7 +5208,7 @@ function importBackup(file){
   reader.onload = () => {
     try{
       const obj = JSON.parse(String(reader.result));
-      if (!obj || obj.format!=="ward-run-backup" || !obj.data) throw new Error("Not a Ward Run backup");
+      if (!obj || (obj.format!=="ward-run-backup" && obj.format!=="fluid-run-backup") || !obj.data) throw new Error("Not a Fluid Run backup");
       if (!confirm("Replace all data on this phone with the backup? This cannot be undone.")) return;
       S = obj.data;
       migrate(S);
@@ -5246,7 +5247,7 @@ function maybeNotify(z){
   const key = "ward-run-notified-"+z.iso;
   if (sessionStorage.getItem(key)) return;
   try{
-    new Notification("Ward Run", {
+    new Notification("Fluid Run", {
       body: "Send today’s restock list before "+(S.settings.orderHour||11)+":00.",
       icon: "icons/icon-192.png",
       tag: "ward-run-order-day"
