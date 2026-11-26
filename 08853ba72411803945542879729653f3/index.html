@@ -402,7 +402,7 @@ label.btn{cursor:pointer}
 (function(){
 "use strict";
 
-const VERSION = "1.4.3";
+const VERSION = "1.4.4";
 const STORE = "ward-run-v1";
 const TZ = "Australia/Sydney";
 const DOW = {Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6};
@@ -543,7 +543,7 @@ const POW_CATALOG = [
   {code:"AHK6046", name:"3% NaCl 24x250"},
   {code:"AHB1354", name:"3% NaCl 12x1000"}
 ];
-const CH_CODES = ["0062","0063","0064","0087","0163","0164","0253","0304","0953","1023","1064","1243","1253","1306","1307","1313","1322","1323","1324","1354","2026","2304","2323","2324","2543","2544","2584","3025","6024","6028","6041","6046","6066","7113","7114","7123","7163","7317","7606","7616"];
+const CH_CODES = ["0062","0063","0064","0087","0163","0164","0253","0304","0953","1023","1064","1243","1253","1306a","1307","1313","1322","1323","1324","1354","2026","2304","2323","2324","2543","2544","2584","3025","6024","6028","6041","6046","6066","7113","7114","7123","7163","7317","7606","7616"];
 const CH_CODE_ONLY = {1323:1, 6024:1, 6066:1};
 const CH_SEED = ["7113","1324","1064","7123","2544","1323","2584","7606","6024","2323","7163","1307"];
 const CH_TICKS = ["Strap","Slush"];
@@ -1021,6 +1021,9 @@ function recordedDays(){
 
 function bareProductCode(code){
   return String(code||"").toUpperCase().replace(/^(AHB|AHF|AHK)/,"").replace(/A$/,"");
+}
+function isExactPlainCode(value, want){
+  return String(value||"").trim().toLowerCase() === String(want||"").trim().toLowerCase();
 }
 function powNameFor(shortCode){
   const bare = bareProductCode(shortCode);
@@ -1817,6 +1820,7 @@ function defaultState(){
     appVersion: VERSION,
     powWardSeed: POW_WARD_SEED,
     chRetiredSeed: 2,
+    codeRename1306a: 1,
     sites: [
       {id:SITE_POW, name:"POW"},
       {id:SITE_CH, name:"Children's"}
@@ -1857,6 +1861,80 @@ function findSiteCode(s, siteId, code){
 function findTick(s, siteId, name){
   const n = String(name||"").toLowerCase();
   return (s.codes||[]).find(c => c.siteId===siteId && (c.tickOnly || !c.code) && String(c.name||"").toLowerCase()===n);
+}
+
+
+function remapCodeId(s, idMap){
+  if (!idMap || !idMap.size) return;
+  const mapId = id => idMap.has(id) ? idMap.get(id) : id;
+  const touchLine = line => {
+    if (!line) return;
+    if (idMap.has(line.codeId)) line.codeId = idMap.get(line.codeId);
+    if (isExactPlainCode(line.code, "1306")) line.code = "1306a";
+  };
+  Object.values(s.rounds||{}).forEach(round => {
+    Object.values((round && round.wards)||{}).forEach(entry => {
+      (entry.lines||[]).forEach(touchLine);
+    });
+  });
+  (s.orders||[]).forEach(o => (o.lines||[]).forEach(touchLine));
+  if (s.draftOrder && Array.isArray(s.draftOrder.lines)) s.draftOrder.lines.forEach(touchLine);
+  if (s.undoMove){
+    (s.undoMove.items||[]).forEach(touchLine);
+    (s.undoMove.dest||[]).forEach(d => { if (d && idMap.has(d.codeId)) d.codeId = idMap.get(d.codeId); });
+  }
+  Object.keys(s.trolley||{}).forEach(day => {
+    const bag = s.trolley[day];
+    if (!bag || typeof bag!=="object") return;
+    Object.keys(bag).forEach(key => {
+      const parts = String(key).split("|");
+      if (parts.length===3 && idMap.has(parts[2])){
+        const nk = parts[0]+"|"+parts[1]+"|"+idMap.get(parts[2]);
+        if (bag[nk]==null) bag[nk] = bag[key];
+        delete bag[key];
+      }
+    });
+  });
+  try{
+    const o = bLoad();
+    let changed = false;
+    Object.keys(o.map||{}).forEach(k => {
+      const v = o.map[k];
+      if (idMap.has(v)){ o.map[k] = idMap.get(v); changed = true; }
+    });
+    if (changed) bSave(o);
+  }catch(e){}
+}
+
+function renamePlain1306(s){
+  if (s.codeRename1306a === 1) return;
+  const codes = s.codes||[];
+  const olds = codes.filter(c => !c.tickOnly && isExactPlainCode(c.code, "1306"));
+  const news = codes.filter(c => !c.tickOnly && isExactPlainCode(c.code, "1306a"));
+  if (olds.length && news.length){
+    s.codeRename1306a = "conflict";
+    return;
+  }
+  if (!olds.length){
+    s.codeRename1306a = 1;
+    return;
+  }
+  const idMap = new Map();
+  olds.forEach(c => {
+    const oldId = c.id;
+    c.code = "1306a";
+    if (oldId === "c-1306" && !codes.some(x => x.id === "c-1306a")) c.id = "c-1306a";
+    if (oldId && c.id !== oldId) idMap.set(oldId, c.id);
+  });
+  remapCodeId(s, idMap);
+  (s.rounds ? Object.values(s.rounds) : []).forEach(round => {
+    Object.values((round && round.wards)||{}).forEach(entry => {
+      (entry.lines||[]).forEach(line => {
+        if (isExactPlainCode(line.code, "1306")) line.code = "1306a";
+      });
+    });
+  });
+  s.codeRename1306a = 1;
 }
 
 function migrate(s){
@@ -1987,6 +2065,7 @@ function migrate(s){
   });
 
   const seedAt = Object.fromEntries(CH_SEED.map((c,i)=>[c, CH_SEED.length-i]));
+  renamePlain1306(s);
   CH_CODES.forEach(code => {
     let c = findSiteCode(s, SITE_CH, code);
     if (!c){
