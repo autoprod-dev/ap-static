@@ -132,8 +132,19 @@ a.btn:visited{color:var(--ink)}
 .daypicks button:disabled{opacity:.4}
 .oncall-lab{display:flex;align-items:center;gap:6px;font-size:.8rem;font-weight:700;color:var(--muted)}
 .toast{position:fixed;left:50%;bottom:calc(var(--nav-h) + 12px + var(--safe-b));transform:translateX(-50%) translateY(20px);
-  background:#12202a;color:#fff;padding:10px 16px;border-radius:12px;font-size:.9rem;opacity:0;pointer-events:none;transition:.2s;z-index:70;max-width:90%}
-.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  background:#12202a;color:#fff;padding:10px 16px;border-radius:12px;font-size:.9rem;opacity:0;pointer-events:none;transition:.2s;z-index:70;max-width:90%;display:flex;align-items:center;gap:10px}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto}
+.toast .toast-undo{background:#fff;color:#12202a;border:0;border-radius:8px;font-weight:800;padding:6px 10px;min-height:36px;cursor:pointer}
+.tickwrap{display:flex;align-items:stretch;gap:6px;margin-bottom:6px}
+.tickwrap .tickrow{flex:1;min-width:0;margin:0}
+.movebtn{flex:none;align-self:stretch;min-width:52px;padding:0 10px;font-size:.75rem;font-weight:800}
+.trolley-acts{margin:6px 0 12px}
+.moved{display:block;font-size:.7rem;color:var(--muted);font-weight:650;font-style:italic}
+.pickdays{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.pickdays button{min-height:44px;padding:0 10px;border:1px solid var(--line);border-radius:10px;background:#fff;font-weight:700;font-size:.82rem;cursor:pointer}
+.pickdays button:hover,.pickdays button:focus{border-color:var(--teal)}
+.dlg-any{display:flex;gap:8px;align-items:center;margin-top:8px}
+.dlg-any input{flex:1;min-height:44px;border:1px solid var(--line);border-radius:10px;padding:0 10px}
 nav.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:50;background:#fff;border-top:1px solid var(--line);
   display:flex;justify-content:space-around;padding:4px 2px var(--safe-b);height:calc(var(--nav-h) + var(--safe-b))}
 nav.tabbar a{flex:1;text-align:center;text-decoration:none;color:var(--muted);font-size:.68rem;font-weight:700;
@@ -391,7 +402,7 @@ label.btn{cursor:pointer}
 (function(){
 "use strict";
 
-const VERSION = "1.4.2";
+const VERSION = "1.4.3";
 const STORE = "ward-run-v1";
 const TZ = "Australia/Sydney";
 const DOW = {Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6};
@@ -643,7 +654,7 @@ function deliveredLines(e){
     const code = (l.code && String(l.code).trim()) || (c ? displayCode(c) : "");
     const name = (l.name!=null && String(l.name).trim()!=="") ? l.name : (c ? (c.name||"") : "");
     const label = [code, name].filter(Boolean).join("  ") || "Item";
-    return {codeId:l.codeId, code, name, label, qty, unit:lineUnit(l)};
+    return {codeId:l.codeId, code, name, label, qty, unit:lineUnit(l), movedFrom:l.movedFrom||null};
   }).filter(Boolean);
 }
 function fmtUnits(lines){
@@ -730,7 +741,7 @@ function renderDayBlock(rep, showSite){
       return `<div class="rpt-ward">${esc(w.name)}${tag}</div><div class="rpt-none">Logged, no items</div>`;
     }
     const rows = w.lines.map(l =>
-      `<div class="rpt-line"><span class="item">${esc(l.label)}</span><span class="qty">${esc(String(l.qty))} ${esc(l.unit)}</span></div>`
+      `<div class="rpt-line"><span class="item">${esc(l.label)}${movedFromLabel(l)?`<span class="moved">${esc(movedFromLabel(l))}</span>`:""}</span><span class="qty">${esc(String(l.qty))} ${esc(l.unit)}</span></div>`
     ).join("");
     return `<div class="rpt-ward">${esc(w.name)}${tag}</div>${rows}`;
   }).join("");
@@ -2221,12 +2232,21 @@ function orderSentOn(iso){
   return S.orders.some(o => o.sentAt && o.sentDate === iso && (!o.siteId || o.siteId===sid));
 }
 
-function toast(msg){
+function toast(msg, opts){
   const el = document.getElementById("toast");
-  el.textContent = msg;
+  el.innerHTML = "";
+  el.appendChild(document.createTextNode(msg));
+  if (opts && opts.undo){
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "toast-undo";
+    b.dataset.act = "undo-move";
+    b.textContent = "Undo";
+    el.appendChild(b);
+  }
   el.classList.add("show");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove("show"), 2200);
+  toastTimer = setTimeout(() => el.classList.remove("show"), (opts && opts.undo) ? 8000 : 2200);
 }
 
 function parseRoute(){
@@ -2251,8 +2271,10 @@ function render(opts){
   if (stay) y = window.scrollY || document.documentElement.scrollTop || 0;
   else if (resumeScroll!=null) y = resumeScroll;
   else y = 0;
-  clearTimeout(toastTimer);
-  document.getElementById("toast").classList.remove("show");
+  if (!stay){
+    clearTimeout(toastTimer);
+    document.getElementById("toast").classList.remove("show");
+  }
   renderBar(z);
   renderBanners(z);
   const view = document.getElementById("view");
@@ -2411,9 +2433,10 @@ function renderRoundWard(z){
     const u = lineUnit(l);
     const meta = displayMeta(c);
     const note = c.note ? ` <span class="shelfnote">${esc(c.note)}</span>` : "";
+    const moved = movedFromLabel(l);
     return `<div class="line" data-cid="${esc(c.id)}">
       <div class="grow"><div class="code">${esc(displayCode(c))} ${kclBadge(c)}</div>
-        <div class="muted">${esc(meta||u)}${note}</div>${varChip(lineVariance(w.id, l, z.iso), "ward")}</div>
+        <div class="muted">${esc(meta||u)}${note}</div>${moved?`<div class="moved">${esc(moved)}</div>`:""}${varChip(lineVariance(w.id, l, z.iso), "ward")}</div>
       <div class="unitpair">
         <div class="stepper">
           <button type="button" data-act="qty" data-dir="-1" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}" aria-label="Decrease">−</button>
@@ -2422,6 +2445,7 @@ function renderRoundWard(z){
         </div>
         ${unitToggle("line-unit", {wid:w.id, cid:c.id}, u)}
       </div>
+      <button class="btn ghost" data-act="transfer-one" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}">Move</button>
       <button class="btn ghost" data-act="remove-line" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}" aria-label="Remove">✕</button>
     </div>`;
   }).join("") || `<div class="muted">Tap a code to add one box. Quantity is optional. Tap box/ea beside the count for single packets.</div>`;
@@ -2470,31 +2494,220 @@ function trolleyItems(z){
   return groups;
 }
 function tickKey(day, wid, cid){ return day+"|"+wid+"|"+cid; }
+function movedFromDays(line){
+  const v = line && line.movedFrom;
+  if (!v) return [];
+  return Array.isArray(v) ? v.slice() : [v];
+}
+function movedFromLabel(line){
+  const days = movedFromDays(line);
+  if (!days.length) return "";
+  return "moved from " + days.map(shortDate).join(", ");
+}
+function tagMovedFrom(line, fromIso){
+  const list = movedFromDays(line);
+  if (!list.includes(fromIso)) list.push(fromIso);
+  line.movedFrom = list.length===1 ? list[0] : list;
+}
+function upcomingDeliveryDays(ward, afterIso, horizon){
+  const out = [];
+  const n = horizon==null ? 14 : horizon;
+  for (let i=1; i<=n; i++){
+    const iso = addDays(afterIso, i);
+    if (wardScheduledOn(ward, dowOf(iso))) out.push(iso);
+  }
+  return out;
+}
+function nextDeliveryDay(ward, afterIso){
+  const days = upcomingDeliveryDays(ward, afterIso, 21);
+  return days[0] || null;
+}
+function ensureRound(iso){
+  if (!S.rounds[iso]) S.rounds[iso] = {date:iso, wards:{}};
+  return S.rounds[iso];
+}
+function ensureWardEntry(iso, wid){
+  const r = ensureRound(iso);
+  const w = wardById(wid);
+  if (!r.wards[wid]) r.wards[wid] = {status:"pending", lines:[], siteId:w ? w.siteId : null};
+  else if (w && !r.wards[wid].siteId) r.wards[wid].siteId = w.siteId;
+  return r.wards[wid];
+}
+function linesMatch(a, b){
+  return a && b && a.codeId===b.codeId && lineUnit(a)===lineUnit(b);
+}
+function openLinesOn(iso, wid){
+  const e = S.rounds[iso] && S.rounds[iso].wards[wid];
+  const ticks = (S.trolley[iso]||{});
+  return ((e && e.lines)||[]).filter(l => l && l.codeId && !ticks[tickKey(iso, wid, l.codeId)]);
+}
+function findLine(lines, codeId, unit){
+  return (lines||[]).find(l => l.codeId===codeId && lineUnit(l)===unit);
+}
+let pendingTransfer = null;
+function moveLines(fromIso, toIso, wid, srcLines){
+  if (!srcLines || !srcLines.length){ toast("Nothing to move"); return null; }
+  if (!toIso || toIso<=fromIso){ toast("Pick a later day"); return null; }
+  const src = S.rounds[fromIso] && S.rounds[fromIso].wards[wid];
+  if (!src){ toast("Nothing to move"); return null; }
+  const dest = ensureWardEntry(toIso, wid);
+  const rec = {fromIso, toIso, wid, items:[], dest:[], destStatusBefore: dest.status || "pending"};
+  if (dest.status==="nothing") dest.status = "pending";
+  if (!dest.lines) dest.lines = [];
+  srcLines.forEach(srcLine => {
+    const unit = lineUnit(srcLine);
+    const qty = qtyNum(srcLine.qty);
+    rec.items.push({codeId:srcLine.codeId, qty:srcLine.qty, unit, code:srcLine.code||"", name:srcLine.name||"", movedFrom:srcLine.movedFrom||null, index:(src.lines||[]).indexOf(srcLine)});
+    const existing = findLine(dest.lines, srcLine.codeId, unit);
+    if (existing){
+      rec.dest.push({codeId:srcLine.codeId, unit, created:false, hadQty:existing.qty, movedFromBefore: existing.movedFrom==null ? null : JSON.parse(JSON.stringify(existing.movedFrom))});
+      if (qty!=null) existing.qty = (qtyNum(existing.qty)||0) + qty;
+      tagMovedFrom(existing, fromIso);
+    } else {
+      const neu = {codeId:srcLine.codeId, qty:srcLine.qty, unit, code:srcLine.code||"", name:srcLine.name||""};
+      stampLine(neu);
+      tagMovedFrom(neu, fromIso);
+      dest.lines.push(neu);
+      rec.dest.push({codeId:srcLine.codeId, unit, created:true});
+    }
+    if (S.trolley[fromIso]) delete S.trolley[fromIso][tickKey(fromIso, wid, srcLine.codeId)];
+  });
+  const drop = new Set(srcLines.map(l => l.codeId+"|"+lineUnit(l)));
+  src.lines = (src.lines||[]).filter(l => !drop.has(l.codeId+"|"+lineUnit(l)));
+  S.undoMove = rec;
+  save();
+  return rec;
+}
+function undoMove(){
+  const rec = S.undoMove;
+  if (!rec){ toast("Nothing to undo"); return; }
+  const dest = S.rounds[rec.toIso] && S.rounds[rec.toIso].wards[rec.wid];
+  const src = ensureWardEntry(rec.fromIso, rec.wid);
+  if (!src.lines) src.lines = [];
+  (rec.dest||[]).forEach(d => {
+    if (!dest || !dest.lines) return;
+    const line = findLine(dest.lines, d.codeId, d.unit);
+    if (!line) return;
+    if (d.created){
+      dest.lines = dest.lines.filter(l => l!==line);
+    } else {
+      line.qty = d.hadQty;
+      if (d.movedFromBefore==null || d.movedFromBefore==="") delete line.movedFrom;
+      else line.movedFrom = d.movedFromBefore;
+    }
+  });
+  (rec.items||[]).forEach(it => {
+    const exists = findLine(src.lines, it.codeId, it.unit);
+    if (exists){
+      const add = qtyNum(it.qty);
+      if (add!=null) exists.qty = (qtyNum(exists.qty)||0) + add;
+    } else {
+      const line = {codeId:it.codeId, qty:it.qty, unit:it.unit, code:it.code||"", name:it.name||""};
+      if (it.movedFrom!=null) line.movedFrom = it.movedFrom;
+      stampLine(line);
+      const idx = (it.index==null || it.index<0) ? src.lines.length : Math.min(it.index, src.lines.length);
+      src.lines.splice(idx, 0, line);
+    }
+  });
+  if (dest && rec.destStatusBefore) dest.status = rec.destStatusBefore;
+  S.undoMove = null;
+  save();
+  renderStay();
+  toast("Move undone");
+}
+function finishMove(rec){
+  if (!rec) return;
+  const n = rec.items.length;
+  const dest = prettyDate(rec.toIso);
+  toast(n===1 ? "Moved to " + dest : "Moved " + n + " items to " + dest, {undo:true});
+  renderStay();
+}
+function openDayPicker(title, ward, fromIso, onPick){
+  const dlg = document.getElementById("dlg");
+  const upcoming = upcomingDeliveryDays(ward, fromIso, 14);
+  const min = addDays(fromIso, 1);
+  const picks = upcoming.length
+    ? upcoming.map(iso => `<button type="button" data-act="transfer-pick" data-iso="${esc(iso)}">${esc(prettyDate(iso))}</button>`).join("")
+    : `<p class="muted" style="margin:4px 0">No scheduled days in the next two weeks. Pick any date.</p>`;
+  dlg.innerHTML = `<h2 id="dlgTitle">${esc(title)}</h2>
+    <p class="muted" style="margin:0 0 6px">Upcoming delivery days for ${esc(ward.name)}</p>
+    <div class="pickdays">${picks}</div>
+    <div class="field"><label>Or any later date</label>
+      <div class="dlg-any"><input type="date" id="transfer-any" min="${esc(min)}" value="${esc(upcoming[0]||min)}">
+      <button type="button" class="btn" data-act="transfer-any">Use this date</button></div>
+    </div>
+    <div class="btnrow"><button type="button" class="btn" data-dlg="cancel">Cancel</button></div>`;
+  pendingTransfer = {onPick, fromIso};
+  dlg.querySelector("[data-dlg=cancel]").onclick = () => { pendingTransfer = null; dlg.close(); dlg.innerHTML=""; };
+  dlg.showModal();
+}
+function closeDayPicker(){
+  pendingTransfer = null;
+  const dlg = document.getElementById("dlg");
+  if (dlg){ dlg.close(); dlg.innerHTML=""; }
+}
+function beginCarryOver(wid, fromIso){
+  const w = wardById(wid);
+  if (!w) return;
+  const next = nextDeliveryDay(w, fromIso);
+  const open = openLinesOn(fromIso, wid);
+  if (!open.length){ toast("No unticked items to carry over"); return; }
+  if (!next){ toast("No later delivery day is scheduled — use Transfer"); return; }
+  finishMove(moveLines(fromIso, next, wid, open));
+}
+function beginTransferUnticked(wid, fromIso){
+  const w = wardById(wid);
+  if (!w) return;
+  const open = openLinesOn(fromIso, wid);
+  if (!open.length){ toast("No unticked items to transfer"); return; }
+  openDayPicker("Transfer unticked items", w, fromIso, (toIso) => finishMove(moveLines(fromIso, toIso, wid, open)));
+}
+function beginTransferOne(wid, cid, fromIso){
+  const w = wardById(wid);
+  const e = S.rounds[fromIso] && S.rounds[fromIso].wards[wid];
+  const line = ((e && e.lines)||[]).find(l => l.codeId===cid);
+  if (!w || !line){ toast("Item not found"); return; }
+  const label = line.label || [line.code, line.name].filter(Boolean).join(" ") || "item";
+  openDayPicker("Move " + label, w, fromIso, (toIso) => finishMove(moveLines(fromIso, toIso, wid, [line])));
+}
+
 
 function renderTrolleys(z){
   const groups = trolleyItems(z);
   if (!groups.length) return `<div class="card empty">No pick list yet. Add codes on today’s round first.</div>` + brandFoot();
   const ticks = S.trolley[z.iso] || {};
-  return groups.map(g => {
+  const body = groups.map(g => {
     const total = g.lines.length;
     const done = g.lines.filter(l => ticks[tickKey(z.iso,g.ward.id,l.codeId)]).length;
+    const openN = g.lines.filter(l => !ticks[tickKey(z.iso,g.ward.id,l.codeId)]).length;
+    const next = nextDeliveryDay(g.ward, z.iso);
     const rows = g.lines.map(l => {
       const c = codeById(l.codeId);
       const key = tickKey(z.iso,g.ward.id,l.codeId);
       const on = !!ticks[key];
       const u = lineUnit(l);
       const q = l.qty==null||l.qty==="" ? u : ("× "+l.qty+" "+u);
-      return `<button type="button" class="tickrow ${on?"done":"open"}" data-act="tick" data-wid="${esc(g.ward.id)}" data-cid="${esc(c.id)}">
-        <span class="tick" aria-hidden="true">${on?"✓":""}</span>
-        <span class="grow"><span class="code">${esc(displayCode(c))}</span> ${esc(c.name||"")} ${c.kcl?'<span class="chip kcl">KCl</span>':''}
-          <div class="muted">${esc(q)}${c.note?" · "+esc(c.note):""}</div></span>
-      </button>`;
+      const moved = movedFromLabel(l);
+      return `<div class="tickwrap">
+        <button type="button" class="tickrow ${on?"done":"open"}" data-act="tick" data-wid="${esc(g.ward.id)}" data-cid="${esc(c.id)}">
+          <span class="tick" aria-hidden="true">${on?"✓":""}</span>
+          <span class="grow"><span class="code">${esc(displayCode(c))}</span> ${esc(c.name||"")} ${c.kcl?'<span class="chip kcl">KCl</span>':''}
+            <div class="muted">${esc(q)}${c.note?" · "+esc(c.note):""}</div>${moved?`<div class="moved">${esc(moved)}</div>`:""}</span>
+        </button>
+        <button type="button" class="btn ghost movebtn" data-act="transfer-one" data-wid="${esc(g.ward.id)}" data-cid="${esc(c.id)}">Move</button>
+      </div>`;
     }).join("");
+    const acts = openN ? `<div class="btnrow trolley-acts">
+        ${next?`<button type="button" class="btn" data-act="carry-over" data-wid="${esc(g.ward.id)}">Carry over unticked to ${esc(shortDate(next))}</button>`:""}
+        <button type="button" class="btn" data-act="transfer-unticked" data-wid="${esc(g.ward.id)}">Transfer unticked…</button>
+      </div>` : "";
     return `<section class="trolley">
       <h2>${esc(g.ward.name)} <span class="chip ${done===total?"ok":"warn"}">${done}/${total}</span></h2>
-      ${rows}
+      ${rows}${acts}
     </section>`;
-  }).join("") + brandFoot();
+  }).join("");
+  const undo = S.undoMove ? `<div class="btnrow noprint"><button type="button" class="btn" data-act="undo-move">Undo move to ${esc(shortDate(S.undoMove.toIso))}</button></div>` : "";
+  return undo + body + brandFoot();
 }
 
 function renderStock(){
@@ -3093,6 +3306,27 @@ document.addEventListener("click", (ev) => {
   if (act==="remove-line") removeLine(b.dataset.wid, b.dataset.cid);
   if (act==="mark") markWard(b.dataset.wid, b.dataset.status);
   if (act==="tick") tickItem(b.dataset.wid, b.dataset.cid);
+  if (act==="carry-over"){ beginCarryOver(b.dataset.wid, z.iso); return; }
+  if (act==="transfer-unticked"){ beginTransferUnticked(b.dataset.wid, z.iso); return; }
+  if (act==="transfer-one"){ beginTransferOne(b.dataset.wid, b.dataset.cid, z.iso); return; }
+  if (act==="undo-move"){ undoMove(); return; }
+  if (act==="transfer-pick"){
+    const iso = b.dataset.iso;
+    const pick = pendingTransfer && pendingTransfer.onPick;
+    closeDayPicker();
+    if (pick) pick(iso);
+    return;
+  }
+  if (act==="transfer-any"){
+    const inp = document.getElementById("transfer-any");
+    const iso = inp && inp.value;
+    const fromIso = pendingTransfer && pendingTransfer.fromIso;
+    if (!iso || (fromIso && iso<=fromIso)){ toast("Pick a later day"); return; }
+    const pick = pendingTransfer && pendingTransfer.onPick;
+    closeDayPicker();
+    if (pick) pick(iso);
+    return;
+  }
   if (act==="stock") changeStock(b.dataset.cid, Number(b.dataset.dir));
   if (act==="other-code"){
     const ward = wardById(b.dataset.wid);

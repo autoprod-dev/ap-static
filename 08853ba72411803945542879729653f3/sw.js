@@ -1,5 +1,5 @@
 /* Ward Run service worker — cache-first so the app works offline after the first visit. */
-const VERSION = 'ward-run-v1.4.2';
+const VERSION = 'ward-run-v1.4.3';
 const PRECACHE = [
   './',
   './index.html',
