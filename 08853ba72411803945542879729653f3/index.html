@@ -399,7 +399,7 @@ label.btn{cursor:pointer}
   .skip,nav.tabbar,.appbar,#banners,#toast,#celebrate,#confetti,#scandlg,dialog,.noprint,.gchip,.sitetog,.weeknav,.filt,.btnrow,.btn{display:none !important}
   main{max-width:none;margin:0;padding:0}
   .card{box-shadow:none;border:1px solid #ccc;break-inside:avoid}
-  #report-sheet.card,#day-sheet.card{break-inside:auto;border:0;border-radius:0;padding:0;margin:0;box-shadow:none}
+  #report-sheet.card,#day-sheet.card,#history-sheet.card{break-inside:auto;border:0;border-radius:0;padding:0;margin:0;box-shadow:none}
   .rpt-day,.rpt-group{break-inside:avoid}
   .rpt-site{break-inside:auto}
   .rpt-site-h{break-after:avoid}
@@ -428,6 +428,17 @@ h3{margin:10px 0 6px}
 .tick{width:22px;height:22px;border-radius:6px}
 .tickwrap{gap:4px;margin-bottom:4px}
 .stockrow{padding:4px 0;gap:6px}
+
+/* v1.5.0 history print and Excel */
+.rpt-flag{font-size:.68rem;font-weight:700;margin-left:8px;white-space:nowrap}
+.rpt-flag.yes{color:var(--teal)}
+.rpt-flag.no{color:var(--muted)}
+.rpt-time{font-weight:650;color:var(--muted);font-size:.7rem;margin-left:8px;white-space:nowrap}
+.hist-export h2{margin-bottom:4px}
+@media print{
+  .rpt-flag,.rpt-time{color:#000}
+}
+
 .oh-row{padding:4px 0;gap:6px}
 .oh-qty{font-size:.88rem}
 .movebtn{min-height:40px;padding:0 10px}
@@ -462,7 +473,7 @@ h3{margin:10px 0 6px}
 (function(){
 "use strict";
 
-const VERSION = "1.4.9";
+const VERSION = "1.5.0";
 const STORE = "ward-run-v1";
 const TZ = "Australia/Sydney";
 const DOW = {Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6};
@@ -624,6 +635,8 @@ const CH_TICKS = ["Strap","Slush"];
 let S = null;
 let route = {page:"round", wardId:null, day:null, week:null};
 let reportLayout = "item";
+let histRange = "day";
+let histAnchor = null;
 let toastTimer = 0;
 let draftOrder = null;
 let stockQuery = "";
@@ -695,6 +708,31 @@ function weekHeading(monday){
   if (!y) return "";
   const dt = new Date(Date.UTC(y, m-1, d, 12));
   return new Intl.DateTimeFormat("en-AU",{timeZone:"UTC", day:"numeric", month:"short", year:"numeric"}).format(dt);
+}
+function monthOf(iso){
+  return String(iso||"").slice(0,7);
+}
+function monthHeading(ym){
+  const [y,m] = String(ym||"").split("-").map(Number);
+  if (!y) return "";
+  const dt = new Date(Date.UTC(y, m-1, 1, 12));
+  return new Intl.DateTimeFormat("en-AU",{timeZone:"UTC", month:"long", year:"numeric"}).format(dt);
+}
+function daysInMonth(ym){
+  if (!/^\d{4}-\d{2}$/.test(String(ym||""))) return [];
+  const days = [];
+  let iso = ym + "-01";
+  while (iso.slice(0,7)===ym){
+    days.push(iso);
+    iso = addDays(iso, 1);
+  }
+  return days;
+}
+function formatSydneyClock(ts){
+  if (!ts) return "";
+  try{
+    return new Intl.DateTimeFormat("en-AU",{timeZone:TZ, hour:"numeric", minute:"2-digit", hour12:true}).format(new Date(ts));
+  }catch(e){ return ""; }
 }
 function siteLabel(id){
   if (!id || id==="all") return "All sites";
@@ -873,7 +911,9 @@ function dayReport(iso, siteFilter){
       siteName:site ? site.name : "",
       lines,
       nothing,
-      emptyChecked:checkedEmpty
+      emptyChecked:checkedEmpty,
+      status:e.status||"",
+      savedAt:e.savedAt||""
     });
   });
   return out;
@@ -885,23 +925,26 @@ function weekDates(monday, siteFilter){
   if (dayHasDeliveries(sun, siteFilter)) days.push(sun);
   return days;
 }
-function renderDayBlock(rep, showSite){
+function renderDayBlock(rep, showSite, withStatus){
   const title = prettyDate(rep.iso);
   if (!rep.hasAnything){
     return `<div class="rpt-day"><h3>${esc(title)}</h3><div class="rpt-empty" style="padding-left:0">No deliveries</div></div>`;
   }
   const wards = rep.wards.map(w => {
     const tag = (showSite && w.siteName) ? `<span class="stag">${esc(w.siteName)}</span>` : "";
+    const time = (withStatus && w.savedAt) ? `<span class="rpt-time">${esc(formatSydneyClock(w.savedAt))}</span>` : "";
     if (w.nothing && !w.lines.length){
-      return `<div class="rpt-ward">${esc(w.name)}${tag}</div><div class="rpt-none">Nothing needed</div>`;
+      return `<div class="rpt-ward">${esc(w.name)}${tag}${time}</div><div class="rpt-none">Nothing needed</div>`;
     }
     if (w.emptyChecked && !w.lines.length){
-      return `<div class="rpt-ward">${esc(w.name)}${tag}</div><div class="rpt-none">Logged, no items</div>`;
+      return `<div class="rpt-ward">${esc(w.name)}${tag}${time}</div><div class="rpt-none">Logged, no items</div>`;
     }
-    const rows = w.lines.map(l =>
-      `<div class="rpt-line"><span class="item">${esc(l.label)}${movedFromLabel(l)?`<span class="moved">${esc(movedFromLabel(l))}</span>`:""}</span><span class="qty">${esc(formatLineSpend(l))}</span></div>`
-    ).join("");
-    return `<div class="rpt-ward">${esc(w.name)}${tag}</div>${rows}`;
+    const rows = w.lines.map(l => {
+      const delivered = withStatus ? lineDeliveredLabel(rep.iso, w.id, l.codeId, w) : "";
+      const flag = delivered ? `<span class="rpt-flag ${delivered==="Yes"?"yes":"no"}">${esc(delivered==="Yes"?"Delivered":delivered==="No"?"Not delivered":delivered)}</span>` : "";
+      return `<div class="rpt-line"><span class="item">${esc(l.label)}${movedFromLabel(l)?`<span class="moved">${esc(movedFromLabel(l))}</span>`:""}</span><span class="qty">${esc(formatLineSpend(l))}${flag}</span></div>`;
+    }).join("");
+    return `<div class="rpt-ward">${esc(w.name)}${tag}${time}</div>${rows}`;
   }).join("");
   return `<div class="rpt-day"><h3>${esc(title)}</h3>${wards}<div class="rpt-subtot"><span>Day total</span><span>${esc(formatSpend(rep.spend||spendOfLines((rep.wards||[]).flatMap(w=>w.lines||[]))))}</span></div></div>`;
 }
@@ -1186,6 +1229,164 @@ function exportWeekXlsx(monday){
 function recordedDays(){
   return Object.keys(S.rounds||{}).filter(iso => dayHasDeliveries(iso, "all")).sort().reverse();
 }
+function historyRangeKind(){
+  return histRange==="week" || histRange==="month" ? histRange : "day";
+}
+function historyAnchor(z){
+  if (histAnchor && /^\d{4}-\d{2}-\d{2}$/.test(histAnchor)) return histAnchor;
+  if (route.page==="history" && route.day && /^\d{4}-\d{2}-\d{2}$/.test(route.day)) return route.day;
+  return (z || zonedNow()).iso;
+}
+function historyRangeDays(z){
+  z = z || zonedNow();
+  const kind = historyRangeKind();
+  const anchor = historyAnchor(z);
+  const today = z.iso;
+  if (kind==="week"){
+    const mon = mondayOf(anchor);
+    const days = weekDates(mon, "all").slice();
+    if (mondayOf(today)===mon && !days.includes(today)) days.push(today);
+    days.sort();
+    return days;
+  }
+  if (kind==="month"){
+    const ym = monthOf(anchor);
+    return daysInMonth(ym).filter(iso => iso===today || dayHasDeliveries(iso, "all"));
+  }
+  return [anchor];
+}
+function historyRangeTitle(z){
+  z = z || zonedNow();
+  const kind = historyRangeKind();
+  const anchor = historyAnchor(z);
+  if (kind==="week") return "Delivered fluids – week of " + weekHeading(mondayOf(anchor));
+  if (kind==="month") return "Delivered fluids – " + monthHeading(monthOf(anchor));
+  return "Delivered fluids – " + prettyDate(anchor);
+}
+function historyRangeFileStamp(z){
+  z = z || zonedNow();
+  const kind = historyRangeKind();
+  const anchor = historyAnchor(z);
+  if (kind==="week") return "week-" + mondayOf(anchor);
+  if (kind==="month") return "month-" + monthOf(anchor);
+  return "day-" + anchor;
+}
+function historyRangeLabel(kind){
+  if (kind==="week") return "Week";
+  if (kind==="month") return "Month";
+  return "Day";
+}
+function historyRangeTotalLabel(kind){
+  if (kind==="week") return "Week total";
+  if (kind==="month") return "Month total";
+  return "Day total";
+}
+function wardHasTickData(iso, wid){
+  const ticks = (S.trolley && S.trolley[iso]) || {};
+  const prefix = iso+"|"+wid+"|";
+  return Object.keys(ticks).some(k => k.indexOf(prefix)===0);
+}
+function lineDeliveredLabel(iso, wid, cid, entry){
+  const ticks = (S.trolley && S.trolley[iso]) || {};
+  if (cid && wardHasTickData(iso, wid)) return ticks[tickKey(iso, wid, cid)] ? "Yes" : "No";
+  if (entry && entry.status==="checked") return "Yes";
+  if (entry && entry.status==="nothing") return "Nothing needed";
+  if (entry && entry.status==="pending") return "No";
+  return "";
+}
+function historyRangeSpend(z){
+  return historyRangeDays(z).reduce((acc, iso) => mergeSpend(acc, dayReport(iso, "all").spend), emptySpend());
+}
+function renderHistorySheet(z){
+  const kind = historyRangeKind();
+  const days = historyRangeDays(z);
+  const body = days.map(iso => renderDayBlock(dayReport(iso, "all"), true, true)).join("");
+  const bag = historyRangeSpend(z);
+  const rangeTot = kind==="day" ? "" : `<div class="rpt-total"><span>${esc(historyRangeTotalLabel(kind))}</span><span>${esc(formatSpend(bag))}</span></div>`;
+  return `<div class="card rpt" id="day-sheet">
+      <div class="rpt-head"><h2>${esc(historyRangeTitle(z))}</h2>
+        <div class="muted">All sites · ${esc(historyRangeLabel(kind))}</div></div>
+      ${body}
+      ${rangeTot}
+    </div>`;
+}
+function renderHistExport(z){
+  const kind = historyRangeKind();
+  const anchor = historyAnchor(z);
+  const btns = [["day","Day"],["week","Week"],["month","Month"]].map(([id, lab]) =>
+    `<button type="button" data-act="hist-range" data-id="${id}" class="${kind===id?"on":""}">${lab}</button>`
+  ).join("");
+  let picker = "";
+  if (kind==="day"){
+    picker = `<label class="muted" for="hist-export-day">Day</label>
+      <input id="hist-export-day" class="hist-date" type="date" data-act="hist-export-day" value="${esc(anchor)}">`;
+  } else if (kind==="week"){
+    const mon = mondayOf(anchor);
+    picker = `<div class="weeknav" style="margin-top:4px">
+      <button type="button" class="btn" data-act="hist-week-prev" aria-label="Previous week">‹</button>
+      <div class="lab">${esc(shortDate(mon))} – ${esc(shortDate(addDays(mon,4)))}</div>
+      <button type="button" class="btn" data-act="hist-week-next" aria-label="Next week">›</button>
+    </div>`;
+  } else {
+    picker = `<label class="muted" for="hist-export-month">Month</label>
+      <input id="hist-export-month" class="hist-date" type="month" data-act="hist-export-month" value="${esc(monthOf(anchor))}">`;
+  }
+  return `<div class="card noprint hist-export">
+    <h2>Print or download</h2>
+    <p class="muted">Print or download an Excel file of delivered fluids by day, week or month, including today.</p>
+    <div class="filt">${btns}</div>
+    ${picker}
+    <div class="btnrow" style="margin-top:0">
+      <button type="button" class="btn primary" data-act="export-hist-xlsx">⬇ Excel</button>
+      <button type="button" class="btn" data-act="print-hist">Print</button>
+    </div>
+  </div>`;
+}
+const HIST_EXPORT_HEAD = ["Date","Site","Ward","Code","Item","Quantity","Unit","Qty (ea / box)","Delivered","Time (Australia/Sydney)"];
+function historyExportRows(z){
+  const rows = [];
+  historyRangeDays(z).forEach(iso => {
+    const rep = dayReport(iso, "all");
+    if (!rep.hasAnything){
+      rows.push([iso,"","","","No deliveries","","","","",""]);
+      return;
+    }
+    rep.wards.forEach(w => {
+      const time = formatSydneyClock(w.savedAt);
+      if (!w.lines.length){
+        rows.push([iso, w.siteName||"", w.name, "", w.nothing?"Nothing needed":"Logged, no items", "", "", "", w.nothing?"Nothing needed":(lineDeliveredLabel(iso,w.id,null,w)||""), time]);
+        return;
+      }
+      w.lines.forEach(l => {
+        rows.push([iso, w.siteName||"", w.name, l.code||"", l.name||"", l.qty, l.unit, formatLineSpend(l), lineDeliveredLabel(iso, w.id, l.codeId, w), time]);
+      });
+    });
+  });
+  return rows;
+}
+function exportHistoryXlsx(){
+  const z = zonedNow();
+  const kind = historyRangeKind();
+  loadVendor("vendor/xlsx.mini.min.js", "XLSX").then(X => {
+    const items = historyExportRows(z);
+    const rows = [];
+    rows.push([historyRangeTitle(z)]);
+    rows.push(["All sites"]);
+    rows.push([]);
+    rows.push(HIST_EXPORT_HEAD);
+    items.forEach(r => rows.push(r));
+    rows.push([]);
+    rows.push(["Total","","","","","","",formatSpend(historyRangeSpend(z)), items.length + (items.length===1?" row":" rows"), ""]);
+    const ws = X.utils.aoa_to_sheet(rows);
+    ws["!cols"] = [{wch:12},{wch:14},{wch:22},{wch:14},{wch:34},{wch:10},{wch:8},{wch:22},{wch:16},{wch:16}];
+    const wb = X.utils.book_new();
+    X.utils.book_append_sheet(wb, ws, "Delivered fluids");
+    const out = X.write(wb, {bookType:"xlsx", type:"array"});
+    downloadBlob(new Blob([out], {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), "ward-run-history-" + historyRangeFileStamp(z) + ".xlsx");
+    toast("Excel downloaded · " + historyRangeLabel(kind) + " · " + items.length + (items.length===1?" row":" rows"));
+  }).catch((err) => { console.error("hist-xlsx", err && (err.stack||err.message||err)); toast("Excel export not available"); });
+}
+
 
 
 function bareProductCode(code){
@@ -4562,22 +4763,13 @@ function renderHistory(z, pop){
     return `<div class="card"><h2>${esc(w.name)}</h2>${rankBlock(w.name, bag, false)}</div>`;
   }).join("") || `<div class="card muted">No per-ward usage yet.</div>`;
 
-  const note = `<p class="phone-note">Day and week records are shared, so you and your colleague can view POW and Children's — including past weeks — on this phone. A copy is also kept here for offline use.</p>`;
-  const picker = `<label class="muted" for="hist-date">Open a day</label>
-    <input id="hist-date" class="hist-date" type="date" data-act="history-date" value="${esc(route.day||z.iso)}">`;
+  const note = `<p class="phone-note noprint">Day and week records are shared, so you and your colleague can view POW and Children's — including past weeks — on this phone. A copy is also kept here for offline use.</p>`;
+  const todayNote = (historyRangeKind()==="day" && historyAnchor(z)===z.iso) ? `<p class="phone-note noprint">Today’s list is still editable on the Round tab. This view is read-only.</p>` : "";
+  const exportUi = `${note}${renderHistExport(z)}${todayNote}${renderHistorySheet(z)}`;
 
-  if (route.day){
-    const rep = dayReport(route.day, "all");
-    const todayNote = route.day===z.iso ? `<p class="phone-note">Today’s list is still editable on the Round tab. This view is read-only.</p>` : "";
+  if (route.day && historyRangeKind()==="day"){
     return `
-      ${note}
-      ${picker}
-      ${todayNote}
-      <div class="card rpt" id="day-sheet">
-        <div class="rpt-head"><h2>Delivered fluids – ${esc(prettyDate(route.day))}</h2>
-          <div class="muted">All sites</div></div>
-        ${renderDayBlock(rep, true)}
-      </div>
+      ${exportUi}
       <div class="btnrow noprint" style="margin-top:0">
         <a class="btn" href="#history" style="text-decoration:none;display:inline-flex;align-items:center">All days</a>
         <a class="btn" href="#report" style="text-decoration:none;display:inline-flex;align-items:center">Weekly delivery report</a>
@@ -4601,8 +4793,8 @@ function renderHistory(z, pop){
   }).join("") || `<p class="muted">No deliveries recorded yet. Finish a ward on the Round tab and it is saved here automatically.</p>`;
 
   return `
-    ${note}
-    ${picker}
+    ${exportUi}
+    <div class="noprint">
     <h3>Past weeks</h3>
     <div class="daylist">${weekRows}</div>
     <h3>Past days</h3>
@@ -4613,6 +4805,7 @@ function renderHistory(z, pop){
     ${siteBlocks}
     <h3>Per ward</h3>
     ${wardBlocks}
+    </div>
     ${brandFoot()}
   `;
 }
@@ -4993,6 +5186,22 @@ document.addEventListener("click", (ev) => {
   }
   if (act==="export-week-xlsx"){ exportWeekXlsx(reportMonday()); return; }
   if (act==="print-report"){ window.print(); return; }
+  if (act==="hist-range"){
+    const id = b.dataset.id;
+    histRange = (id==="week" || id==="month") ? id : "day";
+    if (histRange==="day" && !histAnchor && route.day) histAnchor = route.day;
+    render();
+    return;
+  }
+  if (act==="hist-week-prev" || act==="hist-week-next"){
+    const cur = mondayOf(historyAnchor());
+    histRange = "week";
+    histAnchor = addDays(cur, act==="hist-week-next" ? 7 : -7);
+    render();
+    return;
+  }
+  if (act==="export-hist-xlsx"){ exportHistoryXlsx(); return; }
+  if (act==="print-hist"){ window.print(); return; }
   if (act==="copy-report"){
     copyText(reportPlainText(reportMonday(), reportLayout||"day")).then(ok => toast(ok ? "Copied as text" : "Copy failed — long-press to copy"));
     return;
@@ -5352,12 +5561,41 @@ document.addEventListener("change", (ev) => {
   const t = ev.target;
   if (t && t.dataset && t.dataset.act==="history-date"){
     const v = String(t.value||"");
-    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) location.hash = "history/" + v;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)){
+      histRange = "day";
+      histAnchor = v;
+      location.hash = "history/" + v;
+    }
+  }
+  if (t && t.dataset && t.dataset.act==="hist-export-day"){
+    const v = String(t.value||"");
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)){
+      histRange = "day";
+      histAnchor = v;
+      if (route.page==="history" && route.day) location.hash = "history/" + v;
+      else render();
+    }
+  }
+  if (t && t.dataset && t.dataset.act==="hist-export-month"){
+    const v = String(t.value||"");
+    if (/^\d{4}-\d{2}$/.test(v)){
+      histRange = "month";
+      histAnchor = v + "-01";
+      render();
+    }
   }
 });
 
 window.addEventListener("hashchange", () => {
   if (!/^#stock/.test(location.hash)) stockQuery = "";
+  const raw = (location.hash||"").replace(/^#/, "");
+  if (raw.indexOf("history/")===0){
+    const day = decodeURIComponent(raw.slice(8));
+    if (/^\d{4}-\d{2}-\d{2}$/.test(day)){
+      histRange = "day";
+      histAnchor = day;
+    }
+  }
   clearTimeout(toastTimer);
   document.getElementById("toast").classList.remove("show");
   render();
