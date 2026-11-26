@@ -473,7 +473,7 @@ h3{margin:10px 0 6px}
 (function(){
 "use strict";
 
-const VERSION = "1.5.1";
+const VERSION = "1.5.2";
 const STORE = "ward-run-v1";
 const TZ = "Australia/Sydney";
 const DOW = {Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6};
@@ -600,7 +600,7 @@ const POW_CATALOG = [
   {code:"AHF7114", name:"Water for irrigation pour 10x1000"},
   {code:"AHB2026", name:"0.22% NaCl + 10% glucose 18x500"},
   {code:"AHB1174", name:"KCl 30mmol in 5% glucose 12x1000", kcl:true},
-  {code:"AHB6028", name:"5% glucose + 0.45% NaCl 12x1000"},
+  {code:"AHB6028", name:"5% glucose + 0.45% NaCl 12x1000"}, // 12/box confirmed by Gerard on 27 Nov 2026 from the real box. Do not apply a catalogue 18.
   {code:"AHB2543", name:"Plasma-Lyte 148 18x500"},
   {code:"AHB1064", name:"0.9% NaCl + 5% glucose 12x1000"},
   {code:"AHB6008", name:"KCl 10mmol in 0.29% NaCl 48x100", kcl:true},
@@ -1426,6 +1426,12 @@ function displayCode(c){
   if (c.tickOnly || !String(c.code||"").trim()) return c.name || "";
   return c.code;
 }
+function displayCodeLabel(c){
+  /* Visible label only. Stored lines, History matching and share stay on c.code / displayCode. */
+  const code = displayCode(c);
+  if (c && String(c.code||"").trim()==="2B7231") return "2B7231 (slosh)";
+  return code;
+}
 function displayMeta(c){
   if (!c) return "";
   if (c.tickOnly) return "";
@@ -2070,7 +2076,7 @@ function renderRemainingTable(siteId){
 function renderStocktakeCard(){
   return `<div class="card stk" id="stock-remaining">
     <h2>Stocktake</h2>
-    <p class="muted">Last stocktake, plus deliveries added since, minus fluids ticked as delivered on the wards today (since that save). Boxes and each (single packets) are converted to one packet total using packets per box, then remaining stock is shown as full boxes plus loose packets. Further each ticks still come out of an opened box first. Set or change packets per box in Setup (Each/box).</p>
+    <p class="muted">Starting stock is the remaining figure from the previous day (or the last saved count, plus receipts since, minus ward deliveries up to the start of today). Entering a fluid on a ward deducts it immediately, in boxes or each, converted to one packet total using packets per box. Remaining stock is shown as full boxes plus loose packets, and becomes the next day’s starting stocktake. Set or change packets per box in Setup (Each/box).</p>
     ${renderRemainingTable(SITE_POW)}
     ${renderRemainingTable(SITE_CH)}
     <div class="btnrow">
@@ -3834,6 +3840,7 @@ function addSuggested(wid, cid, qty, unit){
   touchEntry(wid, e);
   shareTouchLine(r.date || zonedNow().iso, wid, cid, false);
   shareTouchWard(r.date || zonedNow().iso, wid);
+  markLineEntered(wid, cid);
   save(); renderStay(); shareKick();
   const ln = document.querySelector('.line[data-cid="' + (window.CSS && CSS.escape ? CSS.escape(cid) : cid) + '"]');
   if (ln) ln.classList.add("pulse");
@@ -3907,7 +3914,7 @@ function renderRoundWard(z){
     const note = c.note ? ` <span class="shelfnote">${esc(c.note)}</span>` : "";
     const moved = movedFromLabel(l);
     return `<div class="line" data-cid="${esc(c.id)}">
-      <div class="grow"><div class="code">${esc(displayCode(c))} ${kclBadge(c)}</div>
+      <div class="grow"><div class="code">${esc(displayCodeLabel(c))} ${kclBadge(c)}</div>
         <div class="muted">${esc(meta||u)}${note}</div>${moved?`<div class="moved">${esc(moved)}</div>`:""}${varChip(lineVariance(w.id, l, z.iso), "ward")}</div>
       <div class="unitpair">
         <div class="stepper">
@@ -3925,7 +3932,7 @@ function renderRoundWard(z){
     return list.map(c => {
       const sub = c.tickOnly ? "" : (c.name?`<span class="cn">${esc(c.name)}</span>`:"") + kclMark(c) + (c.note?`<span class="cn shelfnote">${esc(c.note)}</span>`:"");
       return `<button type="button" class="codebtn${used.has(c.id)?" on":""}${c.kcl?" kcl":""}" data-act="add-code" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}">
-        ${esc(displayCode(c))}${sub}
+        ${esc(displayCodeLabel(c))}${sub}
       </button>`;
     }).join("");
   }
@@ -4295,11 +4302,12 @@ function formatStockSavedAt(iso){
   const txt = new Intl.DateTimeFormat("en-AU",{timeZone:TZ, weekday:"short", day:"numeric", month:"short", hour:"numeric", minute:"2-digit", hour12:true}).format(new Date(iso));
   return "Last saved " + txt;
 }
-function tickTotalsForSite(siteId, store){
+function tickTotalsForSite(siteId, store, dayPred){
   const s = store || S;
   const bag = {};
   const wards = s.wards||[];
   Object.keys(s.trolley||{}).forEach(day => {
+    if (dayPred && !dayPred(day)) return;
     const ticks = s.trolley[day]||{};
     Object.keys(ticks).forEach(key => {
       if (!ticks[key]) return;
@@ -4363,6 +4371,42 @@ function deliveredSinceUnits(siteId, codeId){
     ea: (nowT[codeId+"|ea"]||0) - (thenT[codeId+"|ea"]||0)
   };
 }
+function zonedIsoFromTimestamp(ts){
+  if (!ts) return null;
+  const parts = {};
+  for (const p of new Intl.DateTimeFormat("en-AU",{timeZone:TZ, year:"numeric", month:"2-digit", day:"2-digit"}).formatToParts(new Date(ts))){
+    if (p.type!=="literal") parts[p.type] = p.value;
+  }
+  return (parts.year && parts.month && parts.day) ? (parts.year+"-"+parts.month+"-"+parts.day) : null;
+}
+function stockStartUnitsBeforeDay(siteId, codeId, isoDay){
+  const st = ensureStocktake(siteId);
+  const u = Object.assign({box:0, ea:0}, (st.baseline||{})[codeId]||{});
+  deliveriesSince(siteId, st.savedAt).forEach(d => {
+    if (d.codeId!==codeId) return;
+    const dDay = (d.date && /^\d{4}-\d{2}-\d{2}$/.test(d.date)) ? d.date : zonedIsoFromTimestamp(d.addedAt);
+    if (dDay && dDay >= isoDay) return;
+    const unit = stockUnit(d.unit);
+    u[unit] = (u[unit]||0) + (Number(d.qty)||0);
+  });
+  return u;
+}
+function deliveredBeforeDay(siteId, codeId, isoDay){
+  const st = ensureStocktake(siteId);
+  const savedDay = zonedIsoFromTimestamp(st.savedAt);
+  if (savedDay && savedDay >= isoDay) return {box:0, ea:0};
+  const nowT = tickTotalsForSite(siteId, S, day => day < isoDay);
+  const thenT = st.tickedAtSave||{};
+  return {
+    box: (nowT[codeId+"|box"]||0) - (thenT[codeId+"|box"]||0),
+    ea: (nowT[codeId+"|ea"]||0) - (thenT[codeId+"|ea"]||0)
+  };
+}
+function deliveredOnDay(siteId, codeId, isoDay){
+  const all = deliveredSinceUnits(siteId, codeId);
+  const before = deliveredBeforeDay(siteId, codeId, isoDay);
+  return {box:(all.box||0)-(before.box||0), ea:(all.ea||0)-(before.ea||0)};
+}
 function onHandUnits(siteId, codeId){
   const u = stockStartUnits(siteId, codeId);
   const d = deliveredSinceUnits(siteId, codeId);
@@ -4382,8 +4426,13 @@ function remainingRows(siteId){
   stockCodes(siteId).forEach(c => {
     if (!knownStockItem(siteId, c)) return;
     const pack = packSize(c);
-    const start = normalizeUnits(stockStartUnits(siteId, c.id), pack);
-    const delivered = normalizeUnits(deliveredSinceUnits(siteId, c.id), pack);
+    const today = zonedNow().iso;
+    const startBag = stockStartUnitsBeforeDay(siteId, c.id, today);
+    const before = deliveredBeforeDay(siteId, c.id, today);
+    startBag.box = (startBag.box||0) - (before.box||0);
+    startBag.ea = (startBag.ea||0) - (before.ea||0);
+    const start = normalizeUnits(startBag, pack);
+    const delivered = normalizeUnits(deliveredOnDay(siteId, c.id, today), pack);
     const onhand = onHandUnits(siteId, c.id);
     rows.push({code:c, pack, start, delivered, onhand});
   });
@@ -4432,8 +4481,8 @@ function applyStocktakeDraft(siteId){
   const draft = (S.stockDraft && S.stockDraft[siteId]) || {};
   const baseline = {};
   Object.keys(st.baseline||{}).forEach(id => {
-    const bag = st.baseline[id]||{};
-    baseline[id] = {box:bag.box||0, ea:bag.ea||0};
+    const u = onHandUnits(siteId, id);
+    baseline[id] = {box:u.box||0, ea:u.ea||0};
   });
   let any = false;
   Object.keys(draft).forEach(cid => {
@@ -4586,7 +4635,7 @@ function renderStock(){
   })).join("");
   const form = `<div class="card">
     <h2>Count — ${esc(siteName)} storeroom</h2>
-    <p class="muted">Enter today’s counts in whole boxes, then Save. Save replaces the on-hand total for each item you enter (a fresh stocktake). Leave a field blank to keep its previous total. Fields then reset to 0, ready for the next count. Ward deliveries in boxes or each are deducted as packets using packets per box.</p>
+    <p class="muted">Enter today’s counts in whole boxes, then Save. Save replaces the on-hand total for each item you enter (a fresh stocktake). Leave a field blank to keep its current remaining total. Fields then reset to 0, ready for the next count. Ward deliveries are deducted as soon as you enter them, in boxes or each, as packets using packets per box.</p>
     <button type="button" class="scanbtn" data-act="scan-stock"><span aria-hidden="true">📷</span>Scan to find an item</button>
     <input class="search" id="${qid}" data-act="filter-stock" placeholder="Search codes" type="search" enterkeyhint="search" value="${esc(stockQuery)}">
     ${formRows || '<div class="muted">No codes yet.</div>'}
@@ -4607,7 +4656,7 @@ function renderStock(){
     <div class="btnrow"><button type="button" class="btn" data-act="stock-delivery-add" data-site="${esc(siteId)}">Add delivery</button></div>
   </div>`;
   const onhand = `<h2 style="margin:16px 4px 8px">On hand</h2>
-    <p class="muted" style="margin:0 4px 8px">Calculated in real time: last stocktake, plus deliveries added since, minus fluids ticked as delivered on the wards. Unticking puts the quantity back. Carry-over and transfer do not deduct until ticked.</p>
+    <p class="muted" style="margin:0 4px 8px">Calculated in real time as you enter each ward: last stocktake, plus deliveries added since, minus fluids entered on the wards. Unticking puts the quantity back. Carry-over and transfer do not deduct until ticked. Remaining stock becomes the next day’s starting stocktake.</p>
     ${renderOnHandSite(SITE_POW)}
     ${renderOnHandSite(SITE_CH)}`;
   return form + add + onhand + renderParStock() + renderStocktakeCard() + `<p class="muted">Par stock is set in whole boxes, per hospital, in the Par stock card and is shared. Each/box pack sizes can be set in Setup. On-hand figures turn red at 5 boxes or fewer. Each hospital has its own storeroom.</p>` + brandFoot();
@@ -4995,6 +5044,7 @@ function addCodeToWard(wid, cid){
   touchEntry(wid, e);
   shareTouchLine(r.date || zonedNow().iso, wid, cid, false);
   shareTouchWard(r.date || zonedNow().iso, wid);
+  markLineEntered(wid, cid);
   save(); renderStay(); shareKick();
   const ln = document.querySelector('.line[data-cid="' + (window.CSS && CSS.escape ? CSS.escape(cid) : cid) + '"]');
   if (ln) ln.classList.add("pulse");
@@ -5015,6 +5065,7 @@ function changeQty(wid, cid, dir){
   touchEntry(wid, e);
   shareTouchLine(zonedNow().iso, wid, cid, false);
   shareTouchWard(zonedNow().iso, wid);
+  markLineEntered(wid, cid);
   save(); renderStay(); shareKick();
 }
 function toggleLineUnit(wid, cid){
@@ -5026,6 +5077,7 @@ function toggleLineUnit(wid, cid){
   touchEntry(wid, e);
   shareTouchLine(zonedNow().iso, wid, cid, false);
   shareTouchWard(zonedNow().iso, wid);
+  markLineEntered(wid, cid);
   save(); renderStay(); shareKick();
 }
 function removeLine(wid, cid){
@@ -5066,6 +5118,17 @@ function markWard(wid, status){
     return;
   }
   render();
+}
+function markLineEntered(wid, cid){
+  /* Entering a fluid on a ward marks it delivered so stock deducts immediately. */
+  const day = zonedNow().iso;
+  if (!S.trolley[day]) S.trolley[day] = {};
+  const key = tickKey(day, wid, cid);
+  if (!S.trolley[day][key]){
+    S.trolley[day][key] = true;
+    shareTouchTick(day, wid, cid);
+  }
+  syncCodeStockFromOnHand();
 }
 function tickItem(wid, cid){
   if (!confirmLiveChange(siteOfWard(wid))) return;
