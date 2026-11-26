@@ -296,6 +296,20 @@ label.btn{cursor:pointer}
 .stockrow.v-ok{background:linear-gradient(90deg,#effcf3,transparent 70%);box-shadow:inset 4px 0 0 #22c55e}
 .stockrow{padding-left:10px;border-radius:8px}
 .stockrow.flash{animation:pulse 1.2s ease}
+.stock-in{width:76px;min-height:44px;border:1px solid var(--line);border-radius:10px;padding:0 8px;font-size:1rem;font-weight:700;text-align:center}
+.stock-unused{opacity:.62}
+.stock-unused .code,.stock-unused .muted{color:var(--muted)}
+.oh-neg{color:var(--red);font-weight:800}
+.oh-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
+.oh-row:last-child{border-bottom:0}
+.oh-qty{font-weight:800;white-space:nowrap}
+.deliv-hist{font-size:.8rem;margin:0;padding-left:18px}
+.deliv-hist li{margin:4px 0}
+.stock-add .field{margin:8px 0}
+.stock-add .rowline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.stock-add select{min-height:44px;flex:1;min-width:140px;border:1px solid var(--line);border-radius:10px;padding:0 8px;font-weight:700}
+.saved-at{margin:8px 0 0;font-size:.82rem;font-weight:700;color:var(--muted)}
+.notinuse-head{margin:14px 0 6px;font-size:.8rem;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
 .vsum{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .vbox{border-radius:14px;padding:8px 10px}
 .vbox b{display:block;font-size:1.5rem;font-weight:900;line-height:1.1}
@@ -402,7 +416,7 @@ label.btn{cursor:pointer}
 (function(){
 "use strict";
 
-const VERSION = "1.4.4";
+const VERSION = "1.4.5";
 const STORE = "ward-run-v1";
 const TZ = "Australia/Sydney";
 const DOW = {Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6};
@@ -1836,7 +1850,12 @@ function defaultState(){
     },
     rounds: {},
     orders: [],
-    trolley: {}
+    trolley: {},
+    stockDraft: {},
+    stocktake: {},
+    stockDeliveries: [],
+    stockRestored: {},
+    stockDeliveryDraft: {}
   };
 }
 
@@ -2121,6 +2140,12 @@ function migrate(s){
   if (!st.currentSiteId || st.currentSiteId==="s-main" || !siteExists(s, st.currentSiteId)){
     st.currentSiteId = SITE_CH;
   }
+  if (!s.stockDraft || typeof s.stockDraft!=="object") s.stockDraft = {};
+  if (!s.stocktake || typeof s.stocktake!=="object") s.stocktake = {};
+  if (!Array.isArray(s.stockDeliveries)) s.stockDeliveries = [];
+  if (!s.stockRestored || typeof s.stockRestored!=="object") s.stockRestored = {};
+  if (!s.stockDeliveryDraft || typeof s.stockDeliveryDraft!=="object") s.stockDeliveryDraft = {};
+  initStocktakeFromExisting(s);
   s.version = Math.max(Number(s.version)||1, 2);
   s.appVersion = VERSION;
 }
@@ -2789,27 +2814,274 @@ function renderTrolleys(z){
   return undo + body + brandFoot();
 }
 
+
+function stockUnit(u){ return u==="ea" ? "ea" : "box"; }
+function stockCodes(siteId){
+  return siteCodes(siteId).filter(c => !c.tickOnly);
+}
+function formatOnHand(u){
+  const box = (u && u.box)||0, ea = (u && u.ea)||0;
+  const bits = [];
+  if (box || !ea) bits.push(box + " box");
+  if (ea) bits.push(ea + " ea");
+  return bits.join(", ");
+}
+function onHandIsZero(u){ return ((u&&u.box)||0)===0 && ((u&&u.ea)||0)===0; }
+function onHandIsNeg(u){ return ((u&&u.box)||0)<0 || ((u&&u.ea)||0)<0; }
+function formatStockSavedAt(iso){
+  if (!iso) return "Not yet saved";
+  const txt = new Intl.DateTimeFormat("en-AU",{timeZone:TZ, weekday:"short", day:"numeric", month:"short", hour:"numeric", minute:"2-digit", hour12:true}).format(new Date(iso));
+  return "Last saved " + txt;
+}
+function tickTotalsForSite(siteId, store){
+  const s = store || S;
+  const bag = {};
+  const wards = s.wards||[];
+  Object.keys(s.trolley||{}).forEach(day => {
+    const ticks = s.trolley[day]||{};
+    Object.keys(ticks).forEach(key => {
+      if (!ticks[key]) return;
+      const parts = String(key).split("|");
+      if (parts.length!==3) return;
+      const wid = parts[1], cid = parts[2];
+      const w = wards.find(x => x.id===wid);
+      if (!w || w.siteId!==siteId) return;
+      const e = s.rounds && s.rounds[day] && s.rounds[day].wards && s.rounds[day].wards[wid];
+      const line = ((e && e.lines)||[]).find(l => l.codeId===cid);
+      if (!line) return;
+      const k = cid+"|"+stockUnit(lineUnit(line));
+      bag[k] = (bag[k]||0) + usageQty(line.qty);
+    });
+  });
+  return bag;
+}
+function initStocktakeFromExisting(s){
+  [SITE_POW, SITE_CH].forEach(siteId => {
+    if (s.stocktake[siteId] && s.stocktake[siteId].baseline) return;
+    const baseline = {};
+    (s.codes||[]).forEach(c => {
+      if (c.siteId!==siteId || c.tickOnly) return;
+      const n = Number(c.stock);
+      if (Number.isFinite(n) && n!==0){
+        const bag = {box:0, ea:0};
+        bag[stockUnit(c.unit)] = n;
+        baseline[c.id] = bag;
+      }
+    });
+    s.stocktake[siteId] = {savedAt:null, baseline, tickedAtSave: tickTotalsForSite(siteId, s)};
+  });
+}
+function ensureStocktake(siteId){
+  if (!S.stocktake) S.stocktake = {};
+  if (!S.stocktake[siteId] || !S.stocktake[siteId].baseline){
+    initStocktakeFromExisting(S);
+  }
+  if (!S.stocktake[siteId]) S.stocktake[siteId] = {savedAt:null, baseline:{}, tickedAtSave:{}};
+  return S.stocktake[siteId];
+}
+function deliveriesSince(siteId, savedAt){
+  return (S.stockDeliveries||[]).filter(d => d.siteId===siteId && (!savedAt || String(d.addedAt||"") > savedAt));
+}
+function onHandUnits(siteId, codeId){
+  const st = ensureStocktake(siteId);
+  const u = Object.assign({box:0, ea:0}, (st.baseline||{})[codeId]||{});
+  deliveriesSince(siteId, st.savedAt).forEach(d => {
+    if (d.codeId!==codeId) return;
+    const unit = stockUnit(d.unit);
+    u[unit] = (u[unit]||0) + (Number(d.qty)||0);
+  });
+  const nowT = tickTotalsForSite(siteId);
+  const thenT = st.tickedAtSave||{};
+  ["box","ea"].forEach(unit => {
+    const k = codeId+"|"+unit;
+    u[unit] = (u[unit]||0) - ((nowT[k]||0) - (thenT[k]||0));
+  });
+  return u;
+}
+function syncCodeStockFromOnHand(){
+  [SITE_POW, SITE_CH].forEach(siteId => {
+    if (!S.stocktake || !S.stocktake[siteId]) return;
+    stockCodes(siteId).forEach(c => {
+      const u = onHandUnits(siteId, c.id);
+      c.stock = u[stockUnit(c.unit)]||0;
+    });
+  });
+}
+function stockDraftValue(siteId, codeId){
+  const d = (S.stockDraft && S.stockDraft[siteId]) || {};
+  return d[codeId]==null ? "" : d[codeId];
+}
+function setStockDraft(siteId, codeId, value){
+  if (!S.stockDraft) S.stockDraft = {};
+  if (!S.stockDraft[siteId]) S.stockDraft[siteId] = {};
+  S.stockDraft[siteId][codeId] = value;
+}
+function deliveryDraft(siteId){
+  if (!S.stockDeliveryDraft) S.stockDeliveryDraft = {};
+  const d = S.stockDeliveryDraft[siteId] || {};
+  if (!S.stockDeliveryDraft[siteId]){
+    S.stockDeliveryDraft[siteId] = {codeId:d.codeId||"", qty:d.qty||"", unit:d.unit||"box", date:d.date||zonedNow().iso};
+  }
+  const cur = S.stockDeliveryDraft[siteId];
+  if (!cur.date) cur.date = zonedNow().iso;
+  if (!cur.unit) cur.unit = "box";
+  return cur;
+}
+function saveStocktake(siteId){
+  const st = ensureStocktake(siteId);
+  const draft = (S.stockDraft && S.stockDraft[siteId]) || {};
+  const baseline = {};
+  Object.keys(st.baseline||{}).forEach(id => {
+    const bag = st.baseline[id]||{};
+    baseline[id] = {box:bag.box||0, ea:bag.ea||0};
+  });
+  let any = false;
+  Object.keys(draft).forEach(cid => {
+    const raw = draft[cid];
+    if (raw==="" || raw==null) return;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n<0) return;
+    const c = codeById(cid);
+    if (!c || c.siteId!==siteId || c.tickOnly) return;
+    any = true;
+    const bag = {box:0, ea:0};
+    bag[stockUnit(c.unit)] = n;
+    baseline[cid] = bag;
+  });
+  if (!any){ toast("Enter a count first"); return; }
+  st.baseline = baseline;
+  st.savedAt = new Date().toISOString();
+  st.tickedAtSave = tickTotalsForSite(siteId);
+  S.stockDraft[siteId] = {};
+  if (S.stockRestored) S.stockRestored[siteId] = {};
+  syncCodeStockFromOnHand();
+  save();
+  toast("Stocktake saved");
+  renderStay();
+}
+function addStockDelivery(siteId){
+  const d = deliveryDraft(siteId);
+  const c = codeById(d.codeId);
+  const qty = Number(d.qty);
+  if (!c || c.siteId!==siteId || c.tickOnly){ toast("Pick an item"); return; }
+  if (!Number.isFinite(qty) || qty<=0){ toast("Enter a quantity"); return; }
+  const date = (d.date && /^\d{4}-\d{2}-\d{2}$/.test(d.date)) ? d.date : zonedNow().iso;
+  if (!S.stockDeliveries) S.stockDeliveries = [];
+  S.stockDeliveries.push({
+    id: uid("dl-"), siteId, codeId:c.id, code:displayCode(c), name:c.name||"",
+    qty, unit:stockUnit(d.unit), date, addedAt:new Date().toISOString()
+  });
+  S.stockDeliveryDraft[siteId] = {codeId:"", qty:"", unit:"box", date:zonedNow().iso};
+  if (S.stockRestored && S.stockRestored[siteId]) delete S.stockRestored[siteId][c.id];
+  syncCodeStockFromOnHand();
+  save();
+  toast("Delivery added");
+  renderStay();
+}
+function restoreStockItem(siteId, codeId){
+  if (!S.stockRestored) S.stockRestored = {};
+  if (!S.stockRestored[siteId]) S.stockRestored[siteId] = {};
+  S.stockRestored[siteId][codeId] = true;
+  if (currentSiteId()!==siteId) setCurrentSite(siteId);
+  save();
+  keepScroll = true;
+  renderStay();
+  setTimeout(() => {
+    const inp = document.querySelector('input[data-act="stock-count"][data-cid="'+codeId+'"]');
+    if (inp){ inp.scrollIntoView({block:"center"}); inp.focus(); }
+  }, 50);
+}
+
+function renderOnHandSite(siteId){
+  const site = siteById(siteId);
+  const title = site ? site.name : siteId;
+  const st = ensureStocktake(siteId);
+  const restored = (S.stockRestored && S.stockRestored[siteId]) || {};
+  const q = stockQuery.trim().toLowerCase();
+  const rows = [];
+  const unused = [];
+  stockCodes(siteId).forEach(c => {
+    const u = onHandUnits(siteId, c.id);
+    const known = (st.baseline && st.baseline[c.id]) || !onHandIsZero(u) || restored[c.id]
+      || (S.stockDeliveries||[]).some(d => d.siteId===siteId && d.codeId===c.id);
+    if (!known) return;
+    const nm = (displayCode(c)+" "+(c.name||"")+" "+(c.note||"")).toLowerCase();
+    if (q && !nm.includes(q)) return;
+    const zero = onHandIsZero(u);
+    const neg = onHandIsNeg(u);
+    const hide = zero && !neg && !restored[c.id];
+    const row = `<div class="oh-row ${hide|| (zero&&!neg)?"stock-unused":""} ${neg?"v-short":""}" data-cid="${esc(c.id)}" data-name="${esc(nm)}">
+      <div class="grow"><div class="code">${esc(displayCode(c))} ${kclBadge(c)}</div>
+        <div class="muted">${esc(displayMeta(c)||"box")}${c.note?" · "+esc(c.note):""}</div></div>
+      <div class="oh-qty ${neg?"oh-neg":""}">${esc(formatOnHand(u))}${neg?" below 0":""}</div>
+      ${hide?`<button type="button" class="btn ghost" data-act="stock-restore" data-site="${esc(siteId)}" data-cid="${esc(c.id)}">Bring back</button>`:""}
+    </div>`;
+    if (hide) unused.push(row);
+    else rows.push(row);
+  });
+  const hist = (S.stockDeliveries||[]).filter(d => d.siteId===siteId).slice().sort((a,b) => String(b.addedAt||"").localeCompare(String(a.addedAt||""))).slice(0,8);
+  const histLabel = hist.length
+    ? `<p class="muted" style="margin:10px 0 0">Recent deliveries</p><ul class="deliv-hist">${hist.map(d => `<li>${esc(prettyDate(d.date))} · ${esc(d.code||d.name||"Item")} · ${esc(String(d.qty))} ${esc(d.unit)}</li>`).join("")}</ul>`
+    : `<p class="muted" style="margin:10px 0 0">No added deliveries yet.</p>`;
+  return `<div class="card" data-oh-site="${esc(siteId)}">
+    <h2>${esc(title)}</h2>
+    <p class="saved-at">${esc(formatStockSavedAt(st.savedAt))}</p>
+    ${rows.join("") || (unused.length?"":'<div class="muted">No items on hand.</div>')}
+    ${unused.length?`<div class="notinuse-head">Not in use</div>${unused.join("")}`:""}
+    ${histLabel}
+  </div>`;
+}
+
 function renderStock(){
   const qid = "stock-q";
   const q = stockQuery.trim().toLowerCase();
-  const rows = siteCodes().map(c => {
-    const low = (Number(c.par)||0) > 0 && (Number(c.stock)||0) < (Number(c.par)||0);
-    const v = stockVariance(c);
+  const siteId = currentSiteId();
+  const site = siteById(siteId);
+  const siteName = site ? site.name : "this site";
+  const st = ensureStocktake(siteId);
+  const dd = deliveryDraft(siteId);
+  const codes = stockCodes(siteId);
+  const formRows = codes.map(c => {
     const nm = (displayCode(c)+" "+(c.name||"")+" "+(c.note||"")).toLowerCase();
-    return `<div class="stockrow v-${v.status}" data-cid="${esc(c.id)}" data-name="${esc(nm)}"${q && !nm.includes(q) ? ' style="display:none"' : ''}>
+    const unit = stockUnit(c.unit);
+    const val = stockDraftValue(siteId, c.id);
+    return `<div class="stockrow" data-cid="${esc(c.id)}" data-name="${esc(nm)}"${q && !nm.includes(q) ? ' style="display:none"' : ''}>
       <div class="grow"><div class="code">${esc(displayCode(c))} ${kclBadge(c)}</div>
-        <div class="muted">${esc(displayMeta(c)||"box")} · par ${esc(c.par||0)}${low?' <span class="low">LOW</span>':''}${c.note?" · "+esc(c.note):""}</div>${v.status==="nopar"?"":varChip(v,"store")}</div>
-      <div class="stepper">
-        <button type="button" data-act="stock" data-dir="-1" data-cid="${esc(c.id)}" aria-label="Decrease stock">−</button>
-        <div class="q">${esc(c.stock||0)}</div>
-        <button type="button" data-act="stock" data-dir="1" data-cid="${esc(c.id)}" aria-label="Increase stock">+</button>
-      </div>
+        <div class="muted">${esc(displayMeta(c)||unit)}${c.note?" · "+esc(c.note):""} · ${esc(unit)}</div></div>
+      <input class="stock-in" data-act="stock-count" data-cid="${esc(c.id)}" data-site="${esc(siteId)}" inputmode="numeric" type="number" min="0" step="1" value="${esc(val)}" placeholder="0" aria-label="Count for ${esc(displayCode(c))}">
     </div>`;
   }).join("");
-  return renderVarianceSummary(currentSiteId(), zonedNow().iso) + `<button type="button" class="scanbtn" data-act="scan-stock"><span aria-hidden="true">📷</span>Scan to find an item</button>
+  const options = ['<option value="">Pick an item</option>'].concat(codes.map(c => {
+    const lab = [displayCode(c), c.name].filter(Boolean).join(" ");
+    return `<option value="${esc(c.id)}" ${dd.codeId===c.id?"selected":""}>${esc(lab)}</option>`;
+  })).join("");
+  const form = `<div class="card">
+    <h2>Count — ${esc(siteName)} storeroom</h2>
+    <p class="muted">Enter today’s counts, then Save. Save replaces the on-hand total for each item you enter (a fresh stocktake). Leave a field blank to keep its previous total. Fields then reset to 0, ready for the next count.</p>
+    <button type="button" class="scanbtn" data-act="scan-stock"><span aria-hidden="true">📷</span>Scan to find an item</button>
     <input class="search" id="${qid}" data-act="filter-stock" placeholder="Search codes" type="search" enterkeyhint="search" value="${esc(stockQuery)}">
-    <div class="card">${rows || '<div class="muted">No codes yet.</div>'}</div>
-    <p class="muted">Set par levels in Setup. A low flag appears when the count is below par. Stock is kept per site.</p>` + brandFoot();
+    ${formRows || '<div class="muted">No codes yet.</div>'}
+    <div class="btnrow" style="margin-top:10px"><button type="button" class="btn primary grow" data-act="stock-save" data-site="${esc(siteId)}">Save stocktake</button></div>
+    <p class="saved-at" id="stock-saved-at">${esc(formatStockSavedAt(st.savedAt))}</p>
+  </div>`;
+  const add = `<div class="card stock-add">
+    <h2>Add delivery — ${esc(siteName)}</h2>
+    <p class="muted">Newly received stock is added to on hand and listed in the delivery history. This is separate from a stocktake.</p>
+    <div class="field"><label>Item</label><select data-act="stock-delivery-code" data-site="${esc(siteId)}">${options}</select></div>
+    <div class="rowline">
+      <div class="field"><label>Quantity</label>
+        <input class="stock-in" data-act="stock-delivery-qty" data-site="${esc(siteId)}" inputmode="numeric" type="number" min="0" step="1" value="${esc(dd.qty||"")}" placeholder="0"></div>
+      ${unitToggle("stock-delivery-unit", {site:siteId}, stockUnit(dd.unit))}
+      <div class="field grow"><label>Date</label>
+        <input class="search" style="margin:0" data-act="stock-delivery-date" data-site="${esc(siteId)}" type="date" value="${esc(dd.date||zonedNow().iso)}"></div>
+    </div>
+    <div class="btnrow"><button type="button" class="btn" data-act="stock-delivery-add" data-site="${esc(siteId)}">Add delivery</button></div>
+  </div>`;
+  const onhand = `<h2 style="margin:16px 4px 8px">On hand</h2>
+    <p class="muted" style="margin:0 4px 8px">Calculated in real time: last stocktake, plus deliveries added since, minus fluids ticked as delivered on the wards. Unticking puts the quantity back. Carry-over and transfer do not deduct until ticked.</p>
+    ${renderOnHandSite(SITE_POW)}
+    ${renderOnHandSite(SITE_CH)}`;
+  return form + add + onhand + renderVarianceSummary(siteId, zonedNow().iso) + `<p class="muted">Set par levels in Setup. A low flag appears when the on-hand count is below par. Each hospital has its own storeroom.</p>` + brandFoot();
 }
 
 function ensureDraft(z){
@@ -3204,12 +3476,16 @@ function tickItem(wid, cid){
   const key = tickKey(day, wid, cid);
   S.trolley[day][key] = !S.trolley[day][key];
   if (S.trolley[day][key]){ sfx("tick"); buzz(8); }
+  syncCodeStockFromOnHand();
   save(); renderStay();
 }
 function changeStock(cid, dir){
   const c = codeById(cid); if (!c) return;
-  const n = Number(c.stock)||0;
-  c.stock = Math.max(0, n+dir);
+  const siteId = c.siteId || currentSiteId();
+  const cur = stockDraftValue(siteId, cid);
+  const n = cur==="" || cur==null ? 0 : Number(cur)||0;
+  const next = Math.max(0, n+dir);
+  setStockDraft(siteId, cid, String(next));
   save(); renderStay();
 }
 
@@ -3407,6 +3683,15 @@ document.addEventListener("click", (ev) => {
     return;
   }
   if (act==="stock") changeStock(b.dataset.cid, Number(b.dataset.dir));
+  if (act==="stock-save"){ saveStocktake(b.dataset.site || currentSiteId()); return; }
+  if (act==="stock-delivery-add"){ addStockDelivery(b.dataset.site || currentSiteId()); return; }
+  if (act==="stock-delivery-unit"){
+    const siteId = b.dataset.site || currentSiteId();
+    const d = deliveryDraft(siteId);
+    d.unit = stockUnit(d.unit)==="ea" ? "box" : "ea";
+    save(); renderStay(); return;
+  }
+  if (act==="stock-restore"){ restoreStockItem(b.dataset.site, b.dataset.cid); return; }
   if (act==="other-code"){
     const ward = wardById(b.dataset.wid);
     const sid = ward ? ward.siteId : currentSiteId();
@@ -3595,6 +3880,14 @@ document.addEventListener("change", (ev) => {
     const c = codeById(t.dataset.id); if (!c) return;
     c.par = Math.max(0, Number(t.value)||0); save();
   }
+  if (act==="stock-delivery-code"){
+    deliveryDraft(t.dataset.site || currentSiteId()).codeId = t.value;
+    save();
+  }
+  if (act==="stock-delivery-date"){
+    deliveryDraft(t.dataset.site || currentSiteId()).date = t.value;
+    save();
+  }
 });
 
 document.addEventListener("input", (ev) => {
@@ -3604,9 +3897,17 @@ document.addEventListener("input", (ev) => {
   if (act==="filter-stock"){
     stockQuery = t.value;
     const q = t.value.trim().toLowerCase();
-    document.querySelectorAll(".stockrow").forEach(row => {
+    document.querySelectorAll(".stockrow, .oh-row").forEach(row => {
       row.style.display = !q || (row.dataset.name||"").includes(q) ? "" : "none";
     });
+  }
+  if (act==="stock-count"){
+    setStockDraft(t.dataset.site || currentSiteId(), t.dataset.cid, t.value);
+    save();
+  }
+  if (act==="stock-delivery-qty"){
+    deliveryDraft(t.dataset.site || currentSiteId()).qty = t.value;
+    save();
   }
   if (act==="ward-name"){
     const w = wardById(t.dataset.id); if (!w) return;
