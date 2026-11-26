@@ -184,6 +184,18 @@ body{background:radial-gradient(1200px 400px at 50% -120px,#dbe9ff 0%,rgba(219,2
 .appbar .sub{color:#e0f2fe}
 .appbar .gchip{display:inline-flex;align-items:center;gap:4px;min-height:36px;padding:0 10px;border-radius:99px;background:rgba(255,255,255,.18);color:#fff;font-weight:800;font-size:.85rem;border:0}
 .appbar .gchip.snd{min-width:44px;min-height:44px;justify-content:center;font-size:1.1rem;cursor:pointer}
+
+.appbar .syncchip{display:inline-flex;align-items:center;min-height:28px;padding:0 8px;margin-right:4px;border-radius:99px;border:0;background:rgba(255,255,255,.16);color:#fff;font-weight:700;font-size:.68rem;letter-spacing:.01em;cursor:pointer;max-width:48vw;white-space:nowrap}
+.appbar .syncchip.err{background:#fecaca;color:#991b1b}
+.appbar .syncchip.off{opacity:.9}
+.wardwrap{margin:0 0 8px}
+.usual-lab{font-size:.72rem;font-weight:800;color:var(--muted);letter-spacing:.04em;text-transform:uppercase;margin:0 0 6px}
+.usual-chips{display:flex;flex-wrap:wrap;gap:6px}
+.usual-chip{display:inline-flex;align-items:baseline;gap:6px;min-height:36px;padding:4px 10px;border-radius:99px;border:1px solid var(--line);background:#fff;color:var(--ink);font-weight:700;font-size:.82rem}
+.usual-chip .uqty{font-weight:600;color:var(--muted);font-size:.72rem}
+.usual-more{min-height:36px;padding:4px 10px;border-radius:99px;border:1px dashed var(--line);background:transparent;color:var(--muted);font-weight:700;font-size:.78rem}
+.usualcard{padding-bottom:12px}
+.wardwrap .usual{padding:2px 12px 10px}
 .sitetog{background:rgba(0,0,0,.22)}
 .sitetog button{color:#e0f2fe}
 .sitetog button.on{background:#fff;color:#4c1d95;box-shadow:0 2px 8px rgba(0,0,0,.15)}
@@ -416,12 +428,16 @@ label.btn{cursor:pointer}
 (function(){
 "use strict";
 
-const VERSION = "1.4.5";
+const VERSION = "1.4.6";
 const STORE = "ward-run-v1";
 const TZ = "Australia/Sydney";
 const DOW = {Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6};
 const SITE_POW = "s-pow";
 const SITE_CH = "s-childrens";
+
+const SHARE_URL = "https://xmsndohxzhhipojlgnde.supabase.co";
+const SHARE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhtc25kb2h4emhoaXBvamxnbmRlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTUzMzY2OTksImV4cCI6MjExMDkxMjY5OX0.tO0tyvy4SwPsXEPNIYaf0PCOj2AnUpHQvr1d6oqH24s";
+
 
 
 const POW_WARD_SEED = 2;
@@ -568,6 +584,8 @@ let reportLayout = "item";
 let toastTimer = 0;
 let draftOrder = null;
 let stockQuery = "";
+let usualExpanded = {};
+const USUAL_SHOW = 3;
 
 function esc(s){
   return String(s==null?"":s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
@@ -1846,8 +1864,10 @@ function defaultState(){
       waNumber: "",
       orderWeekdays: [2,4],
       orderHour: 11,
-      currentSiteId: SITE_CH
+      currentSiteId: SITE_CH,
+      staffName: ""
     },
+    share: null,
     rounds: {},
     orders: [],
     trolley: {},
@@ -2145,7 +2165,10 @@ function migrate(s){
   if (!Array.isArray(s.stockDeliveries)) s.stockDeliveries = [];
   if (!s.stockRestored || typeof s.stockRestored!=="object") s.stockRestored = {};
   if (!s.stockDeliveryDraft || typeof s.stockDeliveryDraft!=="object") s.stockDeliveryDraft = {};
+  if (st.staffName == null) st.staffName = "";
   initStocktakeFromExisting(s);
+  ensureShare(s);
+  shareSeedLocal(s);
   s.version = Math.max(Number(s.version)||1, 2);
   s.appVersion = VERSION;
 }
@@ -2164,6 +2187,713 @@ function flushSave(){
   if (S){ rememberView(); save(); }
   if (typeof G!=="undefined" && G) gSave();
 }
+
+const LIVE_WARN = "This changes the live records Gerardo and Prabin see. Continue?";
+const SHARE_TABLE = {
+  ticks: "ward_run_ticks",
+  lines: "ward_run_lines",
+  wards: "ward_run_ward_days",
+  stocktakes: "ward_run_stocktakes",
+  baseline: "ward_run_stock_baseline",
+  ticked: "ward_run_stock_ticked_at_save",
+  deliveries: "ward_run_stock_deliveries",
+  restored: "ward_run_stock_restored"
+};
+
+let shareBusy = false;
+let shareAgain = false;
+let shareTimer = 0;
+let shareApplying = false;
+let shareStarted = false;
+const shareRemoteAt = {ticks:{}, lines:{}, wards:{}, stock:{}, baseline:{}, ticked:{}, deliveries:{}, restored:{}};
+
+function shareNow(){ return new Date().toISOString(); }
+function tsMs(s){ const n = Date.parse(s||""); return Number.isFinite(n) ? n : 0; }
+function tsNewer(a, b){ return tsMs(a) > tsMs(b); }
+
+function staffName(){ return String((S && S.settings && S.settings.staffName) || "").trim(); }
+function staffKind(name){
+  const n = String(name==null ? staffName() : name).trim().toLowerCase();
+  if (n==="prabin") return "prabin";
+  if (n==="gerardo" || n==="gerard") return "gerardo";
+  return "other";
+}
+function needsShareConfirm(siteId){
+  const k = staffKind();
+  if (k==="prabin" && siteId===SITE_POW) return false;
+  if (k==="gerardo" && siteId===SITE_CH) return false;
+  return true;
+}
+function siteOfWard(wid){
+  const w = wardById(wid);
+  return (w && w.siteId) || currentSiteId();
+}
+function confirmLiveChange(siteId){
+  if (!staffName()){
+    toast("Enter your name first");
+    askStaffName(false);
+    return false;
+  }
+  if (!needsShareConfirm(siteId)) return true;
+  return window.confirm(LIVE_WARN);
+}
+function askStaffName(changing){
+  const dlg = document.getElementById("dlg");
+  if (!dlg) return;
+  const title = changing ? "Change your name" : "Your name?";
+  dlg.innerHTML = `<h2 id="dlgTitle">${esc(title)}</h2>
+    <p class="muted">This phone will remember it. You can change it later in Setup.</p>
+    <div class="field"><label>Your name</label>
+      <input id="staff-name-in" value="${esc(staffName())}" placeholder="Your name" autocomplete="name"></div>
+    <div class="btnrow">
+      ${changing?`<button type="button" class="btn" data-dlg="cancel">Cancel</button>`:""}
+      <button type="button" class="btn primary" data-dlg="ok">Save</button>
+    </div>`;
+  const finish = () => { dlg.close(); dlg.innerHTML=""; };
+  const ok = () => {
+    const v = String((dlg.querySelector("#staff-name-in")||{}).value||"").trim();
+    if (!v){ toast("Enter your name"); return; }
+    if (!S.settings) S.settings = {};
+    S.settings.staffName = v;
+    save();
+    finish();
+    renderStay();
+    shareKick();
+  };
+  dlg.querySelector("[data-dlg=ok]").onclick = ok;
+  const cancel = dlg.querySelector("[data-dlg=cancel]");
+  if (cancel) cancel.onclick = finish;
+  const inp = dlg.querySelector("#staff-name-in");
+  if (inp){
+    inp.addEventListener("keydown", ev => { if (ev.key==="Enter"){ ev.preventDefault(); ok(); }});
+  }
+  if (!dlg.open) dlg.showModal();
+  if (inp) inp.focus();
+}
+
+function ensureShare(s){
+  s = s || S;
+  if (!s.share || typeof s.share!=="object") s.share = {};
+  const sh = s.share;
+  if (!sh.deviceId){
+    sh.deviceId = (typeof crypto!=="undefined" && crypto.randomUUID) ? crypto.randomUUID() : ("dev-"+Math.random().toString(36).slice(2)+Date.now().toString(36));
+  }
+  sh.tickAt = sh.tickAt && typeof sh.tickAt==="object" ? sh.tickAt : {};
+  sh.lineAt = sh.lineAt && typeof sh.lineAt==="object" ? sh.lineAt : {};
+  sh.lineGone = sh.lineGone && typeof sh.lineGone==="object" ? sh.lineGone : {};
+  sh.wardAt = sh.wardAt && typeof sh.wardAt==="object" ? sh.wardAt : {};
+  sh.stockAt = sh.stockAt && typeof sh.stockAt==="object" ? sh.stockAt : {};
+  sh.baselineAt = sh.baselineAt && typeof sh.baselineAt==="object" ? sh.baselineAt : {};
+  sh.tickedSaveAt = sh.tickedSaveAt && typeof sh.tickedSaveAt==="object" ? sh.tickedSaveAt : {};
+  sh.tickedSaveGone = sh.tickedSaveGone && typeof sh.tickedSaveGone==="object" ? sh.tickedSaveGone : {};
+  sh.deliveryAt = sh.deliveryAt && typeof sh.deliveryAt==="object" ? sh.deliveryAt : {};
+  sh.restoredAt = sh.restoredAt && typeof sh.restoredAt==="object" ? sh.restoredAt : {};
+  if (!sh.status) sh.status = navigator.onLine ? "pending" : "offline";
+  return sh;
+}
+function shareSeedLocal(s){
+  const sh = ensureShare(s);
+  if (sh.seeded) return;
+  const at = shareNow();
+  Object.keys(s.trolley||{}).forEach(day => {
+    Object.keys(s.trolley[day]||{}).forEach(key => {
+      if (!s.trolley[day][key]) return;
+      const parts = String(key).split("|");
+      if (parts.length<3) return;
+      sh.tickAt[parts[0]+"|"+parts[1]+"|"+parts[2]] = at;
+    });
+  });
+  Object.keys(s.rounds||{}).forEach(day => {
+    const wards = (s.rounds[day]||{}).wards||{};
+    Object.keys(wards).forEach(wid => {
+      const e = wards[wid];
+      sh.wardAt[day+"|"+wid] = e && e.savedAt || at;
+      (e.lines||[]).forEach(l => {
+        if (!l || !l.codeId) return;
+        sh.lineAt[day+"|"+wid+"|"+l.codeId] = at;
+      });
+    });
+  });
+  Object.keys(s.stocktake||{}).forEach(siteId => {
+    const st = s.stocktake[siteId];
+    if (!st || !st.savedAt) return;
+    sh.stockAt[siteId] = st.savedAt;
+    Object.keys(st.baseline||{}).forEach(cid => { sh.baselineAt[siteId+"|"+cid] = st.savedAt; });
+    Object.keys(st.tickedAtSave||{}).forEach(k => { sh.tickedSaveAt[siteId+"|"+k] = st.savedAt; });
+  });
+  (s.stockDeliveries||[]).forEach(d => {
+    if (d && d.id) sh.deliveryAt[d.id] = d.addedAt || at;
+  });
+  Object.keys(s.stockRestored||{}).forEach(siteId => {
+    Object.keys(s.stockRestored[siteId]||{}).forEach(cid => {
+      if (s.stockRestored[siteId][cid]) sh.restoredAt[siteId+"|"+cid] = at;
+    });
+  });
+  sh.seeded = 1;
+  sh.status = navigator.onLine ? "pending" : "offline";
+}
+
+function shareActorMeta(){
+  const sh = ensureShare();
+  return {updated_at: shareNow(), device_id: sh.deviceId, actor: staffName() || null};
+}
+function shareTouchTick(day, wid, cid){
+  if (shareApplying) return;
+  const sh = ensureShare();
+  sh.tickAt[day+"|"+wid+"|"+cid] = shareNow();
+  sh.status = navigator.onLine ? "pending" : "offline";
+}
+function shareTouchLine(day, wid, cid, gone){
+  if (shareApplying) return;
+  const sh = ensureShare();
+  const key = day+"|"+wid+"|"+cid;
+  const at = shareNow();
+  sh.lineAt[key] = at;
+  if (gone) sh.lineGone[key] = at; else delete sh.lineGone[key];
+}
+function shareTouchWard(day, wid){
+  if (shareApplying) return;
+  const sh = ensureShare();
+  sh.wardAt[day+"|"+wid] = shareNow();
+  sh.status = navigator.onLine ? "pending" : "offline";
+}
+function shareTouchStocktake(siteId){
+  if (shareApplying) return;
+  const sh = ensureShare();
+  const at = shareNow();
+  const st = (S.stocktake||{})[siteId] || {};
+  sh.stockAt[siteId] = at;
+  Object.keys(st.baseline||{}).forEach(cid => { sh.baselineAt[siteId+"|"+cid] = at; });
+  const newKeys = {};
+  Object.keys(st.tickedAtSave||{}).forEach(k => {
+    const key = siteId+"|"+k;
+    sh.tickedSaveAt[key] = at;
+    newKeys[key] = 1;
+  });
+  Object.keys(sh.tickedSaveAt).forEach(key => {
+    if (key.indexOf(siteId+"|")!==0) return;
+    if (!newKeys[key]) sh.tickedSaveGone[key] = at;
+  });
+  Object.keys((S.stockRestored&&S.stockRestored[siteId])||{}).forEach(cid => {
+    sh.restoredAt[siteId+"|"+cid] = at;
+  });
+  /* a fresh stocktake clears restored flags — tombstone known restored keys for this site */
+  Object.keys(sh.restoredAt).forEach(key => {
+    if (key.indexOf(siteId+"|")!==0) return;
+    const cid = key.slice(siteId.length+1);
+    if (!(S.stockRestored && S.stockRestored[siteId] && S.stockRestored[siteId][cid])) sh.restoredAt[key] = at;
+  });
+  sh.status = navigator.onLine ? "pending" : "offline";
+}
+function shareTouchDelivery(id){
+  if (shareApplying) return;
+  const sh = ensureShare();
+  sh.deliveryAt[id] = shareNow();
+  sh.status = navigator.onLine ? "pending" : "offline";
+}
+function shareTouchRestored(siteId, cid){
+  if (shareApplying) return;
+  const sh = ensureShare();
+  sh.restoredAt[siteId+"|"+cid] = shareNow();
+  sh.status = navigator.onLine ? "pending" : "offline";
+}
+function shareAfterMove(rec){
+  if (!rec || shareApplying) return;
+  (rec.items||[]).forEach(it => {
+    shareTouchLine(rec.fromIso, rec.wid, it.codeId, true);
+    shareTouchLine(rec.toIso, rec.wid, it.codeId, false);
+    shareTouchTick(rec.fromIso, rec.wid, it.codeId);
+  });
+  shareTouchWard(rec.fromIso, rec.wid);
+  shareTouchWard(rec.toIso, rec.wid);
+}
+
+function setShareStatus(st){
+  const sh = ensureShare();
+  sh.status = st;
+  renderSyncChip();
+}
+function syncChipLabel(){
+  const sh = S && S.share;
+  const st = (sh && sh.status) || (typeof navigator!=="undefined" && !navigator.onLine ? "offline" : "pending");
+  if (st==="synced") return ["ok", "Shared"];
+  if (st==="syncing") return ["pend", "Syncing…"];
+  if (st==="offline") return ["off", "Offline · saved here"];
+  if (st==="error") return ["err", "Sync issue"];
+  return ["pend", "Saved · waiting"];
+}
+function syncChipHtml(){
+  const [cls, lab] = syncChipLabel();
+  return `<button type="button" class="syncchip ${cls}" id="syncchip" data-act="share-retry" aria-label="${esc(lab)}">${esc(lab)}</button>`;
+}
+function renderSyncChip(){
+  const el = document.getElementById("syncchip");
+  if (!el) return;
+  const [cls, lab] = syncChipLabel();
+  el.className = "syncchip " + cls;
+  el.textContent = lab;
+  el.setAttribute("aria-label", lab);
+}
+
+async function shareRequest(method, path, body, extra){
+  const headers = Object.assign({
+    apikey: SHARE_ANON,
+    Authorization: "Bearer " + SHARE_ANON,
+    Accept: "application/json",
+    "Content-Type": "application/json"
+  }, extra||{});
+  const res = await fetch(SHARE_URL + "/rest/v1/" + path, {
+    method,
+    headers,
+    body: body==null ? undefined : JSON.stringify(body)
+  });
+  if (!res.ok){
+    const t = await res.text();
+    throw new Error(res.status + " " + String(t||"").slice(0,240));
+  }
+  if (res.status===204) return null;
+  const ct = res.headers.get("content-type")||"";
+  if (ct.indexOf("json")>=0){
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
+  }
+  return null;
+}
+async function shareSelect(table){
+  const rows = [];
+  let from = 0;
+  const size = 1000;
+  for (;;){
+    const chunk = await shareRequest("GET", table + "?select=*&order=updated_at.asc", null, {
+      Range: from + "-" + (from+size-1),
+      Prefer: "count=exact"
+    });
+    const list = Array.isArray(chunk) ? chunk : [];
+    rows.push.apply(rows, list);
+    if (list.length < size) break;
+    from += size;
+    if (from > 20000) break;
+  }
+  return rows;
+}
+async function shareUpsert(table, conflict, rows){
+  if (!rows || !rows.length) return;
+  for (let i=0;i<rows.length;i+=80){
+    const part = rows.slice(i, i+80);
+    await shareRequest("POST", table + "?on_conflict=" + conflict, part, {
+      Prefer: "resolution=merge-duplicates,return=minimal"
+    });
+  }
+}
+
+function parseMoved(raw){
+  if (raw==null || raw==="") return null;
+  if (typeof raw!=="string") return raw;
+  try { return JSON.parse(raw); } catch(e){ return raw; }
+}
+function dumpMoved(v){
+  if (v==null || v==="") return null;
+  if (typeof v==="string") return v;
+  try { return JSON.stringify(v); } catch(e){ return String(v); }
+}
+
+function applyRemoteTick(row){
+  const day = row.day, wid = row.ward_id, cid = row.code_id;
+  if (!day || !wid || !cid) return false;
+  const key = day+"|"+wid+"|"+cid;
+  const sh = ensureShare();
+  if (!tsNewer(row.updated_at, sh.tickAt[key])) {
+    shareRemoteAt.ticks[key] = row.updated_at;
+    return false;
+  }
+  sh.tickAt[key] = row.updated_at;
+  shareRemoteAt.ticks[key] = row.updated_at;
+  if (!S.trolley[day]) S.trolley[day] = {};
+  const tkey = tickKey(day, wid, cid);
+  if (row.ticked) S.trolley[day][tkey] = true;
+  else delete S.trolley[day][tkey];
+  return true;
+}
+function applyRemoteLine(row){
+  const day = row.day, wid = row.ward_id, cid = row.code_id;
+  if (!day || !wid || !cid) return false;
+  const key = day+"|"+wid+"|"+cid;
+  const sh = ensureShare();
+  if (!tsNewer(row.updated_at, sh.lineAt[key])) {
+    shareRemoteAt.lines[key] = row.updated_at;
+    return false;
+  }
+  sh.lineAt[key] = row.updated_at;
+  shareRemoteAt.lines[key] = row.updated_at;
+  if (row.deleted){
+    sh.lineGone[key] = row.updated_at;
+    const e = S.rounds[day] && S.rounds[day].wards && S.rounds[day].wards[wid];
+    if (e && e.lines) e.lines = e.lines.filter(l => l.codeId!==cid);
+    return true;
+  }
+  delete sh.lineGone[key];
+  const e = ensureWardEntry(day, wid);
+  if (!e.lines) e.lines = [];
+  let line = e.lines.find(l => l.codeId===cid);
+  if (!line){
+    line = {codeId:cid};
+    const idx = row.sort_index==null ? e.lines.length : Math.max(0, Math.min(Number(row.sort_index)||0, e.lines.length));
+    e.lines.splice(idx, 0, line);
+  }
+  line.qty = row.qty==null ? "" : row.qty;
+  line.unit = row.unit || "box";
+  if (row.code!=null) line.code = row.code;
+  if (row.name!=null) line.name = row.name;
+  const moved = parseMoved(row.moved_from);
+  if (moved==null) delete line.movedFrom; else line.movedFrom = moved;
+  stampLine(line);
+  return true;
+}
+function applyRemoteWard(row){
+  const day = row.day, wid = row.ward_id;
+  if (!day || !wid) return false;
+  const key = day+"|"+wid;
+  const sh = ensureShare();
+  if (!tsNewer(row.updated_at, sh.wardAt[key])) {
+    shareRemoteAt.wards[key] = row.updated_at;
+    return false;
+  }
+  sh.wardAt[key] = row.updated_at;
+  shareRemoteAt.wards[key] = row.updated_at;
+  const e = ensureWardEntry(day, wid);
+  if (row.status) e.status = row.status;
+  if (row.site_id) e.siteId = row.site_id;
+  e.savedAt = row.updated_at;
+  return true;
+}
+function applyRemoteStocktake(row){
+  const siteId = row.site_id;
+  if (!siteId) return false;
+  const sh = ensureShare();
+  if (!tsNewer(row.updated_at, sh.stockAt[siteId])) {
+    shareRemoteAt.stock[siteId] = row.updated_at;
+    return false;
+  }
+  sh.stockAt[siteId] = row.updated_at;
+  shareRemoteAt.stock[siteId] = row.updated_at;
+  const st = ensureStocktake(siteId);
+  if (row.saved_at) st.savedAt = row.saved_at;
+  return true;
+}
+function applyRemoteBaseline(row){
+  const siteId = row.site_id, cid = row.code_id;
+  if (!siteId || !cid) return false;
+  const key = siteId+"|"+cid;
+  const sh = ensureShare();
+  if (!tsNewer(row.updated_at, sh.baselineAt[key])) {
+    shareRemoteAt.baseline[key] = row.updated_at;
+    return false;
+  }
+  sh.baselineAt[key] = row.updated_at;
+  shareRemoteAt.baseline[key] = row.updated_at;
+  const st = ensureStocktake(siteId);
+  if (!st.baseline) st.baseline = {};
+  if (row.deleted){ delete st.baseline[cid]; return true; }
+  st.baseline[cid] = {box:Number(row.box)||0, ea:Number(row.ea)||0};
+  return true;
+}
+function applyRemoteTickedSave(row){
+  const siteId = row.site_id, k = row.code_unit_key;
+  if (!siteId || !k) return false;
+  const key = siteId+"|"+k;
+  const sh = ensureShare();
+  if (!tsNewer(row.updated_at, sh.tickedSaveAt[key])) {
+    shareRemoteAt.ticked[key] = row.updated_at;
+    return false;
+  }
+  sh.tickedSaveAt[key] = row.updated_at;
+  shareRemoteAt.ticked[key] = row.updated_at;
+  const st = ensureStocktake(siteId);
+  if (!st.tickedAtSave) st.tickedAtSave = {};
+  if (row.deleted){
+    delete st.tickedAtSave[k];
+    sh.tickedSaveGone[key] = row.updated_at;
+  } else {
+    st.tickedAtSave[k] = Number(row.qty)||0;
+    delete sh.tickedSaveGone[key];
+  }
+  return true;
+}
+function applyRemoteDelivery(row){
+  const id = row.id;
+  if (!id) return false;
+  const sh = ensureShare();
+  if (!tsNewer(row.updated_at, sh.deliveryAt[id])) {
+    shareRemoteAt.deliveries[id] = row.updated_at;
+    return false;
+  }
+  sh.deliveryAt[id] = row.updated_at;
+  shareRemoteAt.deliveries[id] = row.updated_at;
+  if (!S.stockDeliveries) S.stockDeliveries = [];
+  const idx = S.stockDeliveries.findIndex(d => d.id===id);
+  if (row.deleted){
+    if (idx>=0) S.stockDeliveries.splice(idx,1);
+    return true;
+  }
+  const rec = {
+    id, siteId:row.site_id, codeId:row.code_id, code:row.code||"", name:row.name||"",
+    qty:Number(row.qty)||0, unit:stockUnit(row.unit), date:row.date, addedAt:row.added_at
+  };
+  if (idx>=0) S.stockDeliveries[idx] = rec;
+  else S.stockDeliveries.push(rec);
+  return true;
+}
+function applyRemoteRestored(row){
+  const siteId = row.site_id, cid = row.code_id;
+  if (!siteId || !cid) return false;
+  const key = siteId+"|"+cid;
+  const sh = ensureShare();
+  if (!tsNewer(row.updated_at, sh.restoredAt[key])) {
+    shareRemoteAt.restored[key] = row.updated_at;
+    return false;
+  }
+  sh.restoredAt[key] = row.updated_at;
+  shareRemoteAt.restored[key] = row.updated_at;
+  if (!S.stockRestored) S.stockRestored = {};
+  if (!S.stockRestored[siteId]) S.stockRestored[siteId] = {};
+  if (row.restored) S.stockRestored[siteId][cid] = true;
+  else delete S.stockRestored[siteId][cid];
+  return true;
+}
+
+function collectPushTicks(){
+  const sh = ensureShare();
+  const rows = [];
+  Object.keys(sh.tickAt).forEach(key => {
+    if (!tsNewer(sh.tickAt[key], shareRemoteAt.ticks[key])) return;
+    const p = key.split("|");
+    if (p.length<3) return;
+    const day=p[0], wid=p[1], cid=p[2];
+    const ticked = !!(S.trolley[day] && S.trolley[day][tickKey(day,wid,cid)]);
+    rows.push({day, ward_id:wid, code_id:cid, ticked, updated_at:sh.tickAt[key], device_id:sh.deviceId, actor:staffName()||null});
+  });
+  return rows;
+}
+function collectPushLines(){
+  const sh = ensureShare();
+  const rows = [];
+  const seen = {};
+  Object.keys(sh.lineAt).forEach(key => {
+    if (!tsNewer(sh.lineAt[key], shareRemoteAt.lines[key])) return;
+    const p = key.split("|");
+    if (p.length<3) return;
+    const day=p[0], wid=p[1], cid=p[2];
+    seen[key]=1;
+    const e = S.rounds[day] && S.rounds[day].wards && S.rounds[day].wards[wid];
+    const line = ((e && e.lines)||[]).find(l => l.codeId===cid);
+    const gone = !line || sh.lineGone[key];
+    const qty = line ? qtyNum(line.qty) : null;
+    rows.push({
+      day, ward_id:wid, code_id:cid,
+      qty: qty,
+      unit: line ? lineUnit(line) : "box",
+      code: line ? (line.code||"") : "",
+      name: line ? (line.name||"") : "",
+      moved_from: line ? dumpMoved(line.movedFrom) : null,
+      sort_index: line && e ? (e.lines||[]).indexOf(line) : null,
+      deleted: !!gone,
+      updated_at: sh.lineAt[key],
+      device_id: sh.deviceId,
+      actor: staffName()||null
+    });
+  });
+  return rows;
+}
+function collectPushWards(){
+  const sh = ensureShare();
+  const rows = [];
+  Object.keys(sh.wardAt).forEach(key => {
+    if (!tsNewer(sh.wardAt[key], shareRemoteAt.wards[key])) return;
+    const p = key.split("|");
+    if (p.length<2) return;
+    const day=p[0], wid=p[1];
+    const e = S.rounds[day] && S.rounds[day].wards && S.rounds[day].wards[wid];
+    const w = wardById(wid);
+    rows.push({
+      day, ward_id:wid,
+      site_id: (e && e.siteId) || (w && w.siteId) || null,
+      status: (e && e.status) || "pending",
+      updated_at: sh.wardAt[key],
+      device_id: sh.deviceId,
+      actor: staffName()||null
+    });
+  });
+  return rows;
+}
+function collectPushStock(){
+  const sh = ensureShare();
+  const headers=[], baseline=[], ticked=[], deliveries=[], restored=[];
+  Object.keys(sh.stockAt).forEach(siteId => {
+    if (!tsNewer(sh.stockAt[siteId], shareRemoteAt.stock[siteId])) return;
+    const st = (S.stocktake||{})[siteId] || {};
+    headers.push({site_id:siteId, saved_at:st.savedAt||null, updated_at:sh.stockAt[siteId], device_id:sh.deviceId, actor:staffName()||null});
+  });
+  Object.keys(sh.baselineAt).forEach(key => {
+    if (!tsNewer(sh.baselineAt[key], shareRemoteAt.baseline[key])) return;
+    const i = key.indexOf("|"); if (i<0) return;
+    const siteId = key.slice(0,i), cid = key.slice(i+1);
+    const bag = (((S.stocktake||{})[siteId]||{}).baseline||{})[cid];
+    baseline.push({
+      site_id:siteId, code_id:cid,
+      box: bag ? (bag.box||0) : 0,
+      ea: bag ? (bag.ea||0) : 0,
+      deleted: !bag,
+      updated_at: sh.baselineAt[key],
+      device_id: sh.deviceId,
+      actor: staffName()||null
+    });
+  });
+  Object.keys(sh.tickedSaveAt).forEach(key => {
+    const gone = sh.tickedSaveGone[key];
+    const at = gone || sh.tickedSaveAt[key];
+    if (!tsNewer(at, shareRemoteAt.ticked[key])) return;
+    const i = key.indexOf("|"); if (i<0) return;
+    const siteId = key.slice(0,i), k = key.slice(i+1);
+    const st = (S.stocktake||{})[siteId] || {};
+    const has = st.tickedAtSave && Object.prototype.hasOwnProperty.call(st.tickedAtSave, k);
+    ticked.push({
+      site_id:siteId, code_unit_key:k,
+      qty: has ? (st.tickedAtSave[k]||0) : 0,
+      deleted: !has,
+      updated_at: at,
+      device_id: sh.deviceId,
+      actor: staffName()||null
+    });
+  });
+  Object.keys(sh.deliveryAt).forEach(id => {
+    if (!tsNewer(sh.deliveryAt[id], shareRemoteAt.deliveries[id])) return;
+    const d = (S.stockDeliveries||[]).find(x => x.id===id);
+    deliveries.push({
+      id, site_id: d ? d.siteId : null, code_id: d ? d.codeId : "",
+      code: d ? (d.code||"") : "", name: d ? (d.name||"") : "",
+      qty: d ? d.qty : 0, unit: d ? d.unit : "box", date: d ? d.date : null,
+      added_at: d ? (d.addedAt||sh.deliveryAt[id]) : sh.deliveryAt[id],
+      updated_at: sh.deliveryAt[id],
+      deleted: !d,
+      device_id: sh.deviceId,
+      actor: staffName()||null
+    });
+  });
+  Object.keys(sh.restoredAt).forEach(key => {
+    if (!tsNewer(sh.restoredAt[key], shareRemoteAt.restored[key])) return;
+    const i = key.indexOf("|"); if (i<0) return;
+    const siteId = key.slice(0,i), cid = key.slice(i+1);
+    const on = !!(S.stockRestored && S.stockRestored[siteId] && S.stockRestored[siteId][cid]);
+    restored.push({
+      site_id:siteId, code_id:cid, restored:on,
+      updated_at: sh.restoredAt[key],
+      device_id: sh.deviceId,
+      actor: staffName()||null
+    });
+  });
+  return {headers, baseline, ticked, deliveries, restored};
+}
+
+async function sharePull(){
+  const [ticks, lines, wards, stocktakes, baseline, ticked, deliveries, restored] = await Promise.all([
+    shareSelect(SHARE_TABLE.ticks),
+    shareSelect(SHARE_TABLE.lines),
+    shareSelect(SHARE_TABLE.wards),
+    shareSelect(SHARE_TABLE.stocktakes),
+    shareSelect(SHARE_TABLE.baseline),
+    shareSelect(SHARE_TABLE.ticked),
+    shareSelect(SHARE_TABLE.deliveries),
+    shareSelect(SHARE_TABLE.restored)
+  ]);
+  shareApplying = true;
+  let changed = false;
+  try{
+    (wards||[]).forEach(r => { if (applyRemoteWard(r)) changed = true; });
+    (lines||[]).forEach(r => { if (applyRemoteLine(r)) changed = true; });
+    (ticks||[]).forEach(r => { if (applyRemoteTick(r)) changed = true; });
+    (stocktakes||[]).forEach(r => { if (applyRemoteStocktake(r)) changed = true; });
+    (baseline||[]).forEach(r => { if (applyRemoteBaseline(r)) changed = true; });
+    (ticked||[]).forEach(r => { if (applyRemoteTickedSave(r)) changed = true; });
+    (deliveries||[]).forEach(r => { if (applyRemoteDelivery(r)) changed = true; });
+    (restored||[]).forEach(r => { if (applyRemoteRestored(r)) changed = true; });
+    if (changed) syncCodeStockFromOnHand();
+  } finally {
+    shareApplying = false;
+  }
+  return changed;
+}
+async function sharePush(){
+  if (!staffName()) return;
+  await shareUpsert(SHARE_TABLE.ticks, "day,ward_id,code_id", collectPushTicks());
+  await shareUpsert(SHARE_TABLE.lines, "day,ward_id,code_id", collectPushLines());
+  await shareUpsert(SHARE_TABLE.wards, "day,ward_id", collectPushWards());
+  const st = collectPushStock();
+  await shareUpsert(SHARE_TABLE.stocktakes, "site_id", st.headers);
+  await shareUpsert(SHARE_TABLE.baseline, "site_id,code_id", st.baseline);
+  await shareUpsert(SHARE_TABLE.ticked, "site_id,code_unit_key", st.ticked);
+  await shareUpsert(SHARE_TABLE.deliveries, "id", st.deliveries);
+  await shareUpsert(SHARE_TABLE.restored, "site_id,code_id", st.restored);
+}
+
+async function shareSync(){
+  if (shareBusy){ shareAgain = true; return; }
+  if (typeof navigator!=="undefined" && !navigator.onLine){
+    setShareStatus("offline");
+    return;
+  }
+  shareBusy = true;
+  setShareStatus("syncing");
+  try{
+    const changed = await sharePull();
+    await sharePush();
+    const sh = ensureShare();
+    sh.lastOkAt = shareNow();
+    sh.lastError = "";
+    setShareStatus("synced");
+    save();
+    if (changed){
+      const ae = document.activeElement;
+      const typing = ae && (ae.tagName==="INPUT" || ae.tagName==="TEXTAREA" || ae.tagName==="SELECT");
+      if (!typing) renderStay();
+    }
+  }catch(e){
+    const sh = ensureShare();
+    sh.lastError = String((e && e.message) || e || "sync failed");
+    setShareStatus(typeof navigator!=="undefined" && !navigator.onLine ? "offline" : "error");
+  } finally {
+    shareBusy = false;
+    if (shareAgain){
+      shareAgain = false;
+      shareKick();
+    }
+  }
+}
+function shareKick(){
+  if (typeof navigator!=="undefined" && !navigator.onLine){
+    setShareStatus("offline");
+    return;
+  }
+  const sh = ensureShare();
+  if (sh.status!=="syncing") sh.status = "pending";
+  renderSyncChip();
+  clearTimeout(shareTimer);
+  shareTimer = setTimeout(() => { shareSync(); }, 400);
+}
+function shareStart(){
+  if (shareStarted) return;
+  shareStarted = true;
+  ensureShare();
+  window.addEventListener("online", () => { setShareStatus("pending"); shareKick(); });
+  window.addEventListener("offline", () => setShareStatus("offline"));
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState==="visible") shareKick();
+  });
+  setInterval(() => {
+    if (document.visibilityState!=="hidden") shareSync();
+  }, 5000);
+  shareKick();
+}
+
 
 function currentSiteId(){
   const id = S.settings && S.settings.currentSiteId;
@@ -2446,7 +3176,7 @@ function renderBar(z){
   const siteTog = (route.page==="report") ? "" : renderSiteToggle();
   bar.innerHTML =
     (back ? `<button class="back" data-act="back" aria-label="Back">‹</button>` : "") +
-    `<div class="grow"><h1>${esc(title)}</h1><p class="sub">${esc(sub)}</p></div>${extra}${gchips}` +
+    `<div class="grow"><h1>${esc(title)}</h1><p class="sub">${esc(sub)}</p></div>${extra}${syncChipHtml()}${gchips}` +
     siteTog;
 }
 
@@ -2469,6 +3199,85 @@ function unitToggle(act, extra, unit){
   return `<button type="button" class="unitbtn${on?" on":""}" data-act="${esc(act)}" ${attrs} aria-pressed="${on?"true":"false"}" aria-label="${on?"Single packets, tap for boxes":"Boxes, tap for single packets"}">${on?"ea":"box"}</button>`;
 }
 
+
+function medianInt(nums){
+  const a = (nums||[]).filter(n => n!=null && Number.isFinite(n) && n>0).slice().sort((x,y)=>x-y);
+  if (!a.length) return null;
+  const mid = Math.floor((a.length-1)/2);
+  if (a.length%2) return a[mid];
+  return Math.round((a[mid]+a[mid+1])/2) || a[mid];
+}
+function usualNeedsForWard(wid, hideIso){
+  const samples = {};
+  const hits = {};
+  Object.keys(S.rounds||{}).forEach(day => {
+    if (hideIso && day===hideIso) return;
+    const e = S.rounds[day] && S.rounds[day].wards && S.rounds[day].wards[wid];
+    if (!e) return;
+    const ticks = (S.trolley && S.trolley[day]) || {};
+    (e.lines||[]).forEach(line => {
+      if (!line || !line.codeId) return;
+      if (!ticks[tickKey(day, wid, line.codeId)]) return;
+      if (!samples[line.codeId]) samples[line.codeId] = [];
+      samples[line.codeId].push({qty:qtyNum(line.qty), unit:lineUnit(line)});
+      hits[line.codeId] = (hits[line.codeId]||0) + 1;
+    });
+  });
+  const today = hideIso && S.rounds[hideIso] && S.rounds[hideIso].wards && S.rounds[hideIso].wards[wid];
+  const used = new Set(((today && today.lines)||[]).map(l => l && l.codeId).filter(Boolean));
+  return Object.keys(hits).filter(id => !used.has(id) && codeById(id)).sort((a,b) => (hits[b]-hits[a]) || a.localeCompare(b)).map(id => {
+    const list = samples[id]||[];
+    const unitCounts = {box:0, ea:0};
+    list.forEach(s => { unitCounts[s.unit==="ea"?"ea":"box"]++; });
+    const unit = unitCounts.ea>unitCounts.box ? "ea" : "box";
+    const qty = medianInt(list.filter(s => (s.unit||"box")===unit).map(s => s.qty));
+    return {codeId:id, hits:hits[id], qty: qty==null?1:qty, unit, code:codeById(id)};
+  });
+}
+function renderUsualNeeds(wid, iso, asCard){
+  const rows = usualNeedsForWard(wid, iso);
+  if (!rows.length) return "";
+  const open = !!usualExpanded[wid];
+  const visible = open ? rows : rows.slice(0, USUAL_SHOW);
+  const chips = visible.map(r => {
+    const c = r.code;
+    const lab = displayCode(c) || (c && c.name) || r.codeId;
+    return `<button type="button" class="usual-chip" data-act="suggest-add" data-wid="${esc(wid)}" data-cid="${esc(r.codeId)}" data-qty="${esc(r.qty)}" data-unit="${esc(r.unit)}"><span>${esc(lab)}</span><span class="uqty">${esc(String(r.qty))} ${esc(r.unit)}</span></button>`;
+  }).join("");
+  const more = rows.length>USUAL_SHOW
+    ? `<button type="button" class="usual-more" data-act="suggest-more" data-wid="${esc(wid)}">${open?"Less":"More"}</button>`
+    : "";
+  const inner = `<div class="usual-lab">Usually needs</div><div class="usual-chips">${chips}${more}</div>`;
+  return asCard ? `<div class="card usualcard">${inner}</div>` : `<div class="usual">${inner}</div>`;
+}
+function addSuggested(wid, cid, qty, unit){
+  if (!confirmLiveChange(siteOfWard(wid))) return;
+  const ww = wardById(wid); if (ww) touchRun(ww.siteId);
+  sfx("tick"); buzz(8);
+  const r = todayRound();
+  const e = wardEntry(r, wid);
+  const q = qtyNum(qty);
+  const u = (unit==="ea") ? "ea" : "box";
+  let line = (e.lines||[]).find(l => l.codeId===cid);
+  if (line){
+    const n = qtyNum(line.qty);
+    line.qty = (n==null ? 0 : n) + (q==null ? 0 : q);
+    if (!line.unit) line.unit = u;
+  } else {
+    if (!e.lines) e.lines = [];
+    e.lines.push({codeId:cid, qty: q==null?1:q, unit:u});
+    if (e.status==="nothing") e.status="pending";
+  }
+  touchEntry(wid, e);
+  shareTouchLine(r.date || zonedNow().iso, wid, cid, false);
+  shareTouchWard(r.date || zonedNow().iso, wid);
+  save(); renderStay(); shareKick();
+  const ln = document.querySelector('.line[data-cid="' + (window.CSS && CSS.escape ? CSS.escape(cid) : cid) + '"]');
+  if (ln) ln.classList.add("pulse");
+  const c = codeById(cid);
+  toast("Added " + (c ? displayCode(c) : "") + (q==null?"":" · "+q+" "+u));
+}
+
 function renderWardButton(w, r, pop, medal, extraCls){
   const e = r.wards[w.id];
   const status = e ? e.status : "pending";
@@ -2478,19 +3287,17 @@ function renderWardButton(w, r, pop, medal, extraCls){
   if (status==="nothing"){ chip = `<span class="chip">Nothing needed</span>`; meta="Checked, nothing needed"; }
   else if (status==="checked"){ chip = `<span class="chip ok">Checked</span>`; meta = n + (n===1?" code":" codes"); }
   else if (n){ chip = `<span class="chip warn">In progress</span>`; meta = n + (n===1?" code":" codes"); }
-  const top = (pop.byWard[w.id] && Object.keys(pop.byWard[w.id]).length)
-    ? codesForWard(w.id, pop).slice(0,2).map(c=>displayCode(c)).join(", ")
-    : "";
-  if (top && status==="pending" && !n) meta = "Often: " + top;
   const done = isDone(e);
   const cls = (done ? " done" : (n ? " prog" : "")) + (extraCls ? " "+extraCls : "");
   const day = `<span class="daychip">${esc(fmtDays(w))}</span>`;
   const note = w.notes ? `<div class="wardnote">${esc(w.notes)}</div>` : "";
-  return `<button class="ward${cls}" data-act="open-ward" data-id="${esc(w.id)}">
+  const usual = renderUsualNeeds(w.id, zonedNow().iso, false);
+  const btn = `<button class="ward${cls}" data-act="open-ward" data-id="${esc(w.id)}">
     <span class="medal" aria-hidden="true">${done?"✓":medal}</span>
     <div class="grow"><div class="name">${esc(w.name)}</div><div class="muted">${day}${esc(meta)}</div>${note}</div>
     ${chip}
   </button>`;
+  return usual ? `<div class="wardwrap">${btn}${usual}</div>` : btn;
 }
 function renderBuildingGroups(wards, r, pop, startAt){
   let i = startAt||0;
@@ -2574,6 +3381,7 @@ function renderRoundWard(z){
       <button class="btn big ${st==="nothing"?"warn":""}" data-act="mark" data-wid="${esc(w.id)}" data-status="nothing">${st==="nothing"?"Nothing needed — tap to uncheck":"Nothing needed"}</button>
       <button class="btn big grow ${st==="checked"?"ok":"primary"}" data-act="mark" data-wid="${esc(w.id)}" data-status="checked">${st==="checked"?"Done ✓ — tap to uncheck":"Mark done ✓"}</button>
     </div>
+    ${renderUsualNeeds(w.id, z.iso, true)}
     <div class="card" style="margin-top:12px"><h2>This ward</h2>${lineHtml}</div>
     <button type="button" class="scanbtn" data-act="scan-ward" data-wid="${esc(w.id)}"><span aria-hidden="true">📷</span>Scan barcode</button>
     <h3>Codes — most used first</h3>
@@ -2652,6 +3460,7 @@ let pendingTransfer = null;
 function moveLines(fromIso, toIso, wid, srcLines){
   if (!srcLines || !srcLines.length){ toast("Nothing to move"); return null; }
   if (!toIso || toIso<=fromIso){ toast("Pick a later day"); return null; }
+  if (!confirmLiveChange(siteOfWard(wid))) return null;
   const src = S.rounds[fromIso] && S.rounds[fromIso].wards[wid];
   if (!src){ toast("Nothing to move"); return null; }
   const dest = ensureWardEntry(toIso, wid);
@@ -2679,12 +3488,14 @@ function moveLines(fromIso, toIso, wid, srcLines){
   const drop = new Set(srcLines.map(l => l.codeId+"|"+lineUnit(l)));
   src.lines = (src.lines||[]).filter(l => !drop.has(l.codeId+"|"+lineUnit(l)));
   S.undoMove = rec;
-  save();
+  shareAfterMove(rec);
+  save(); shareKick();
   return rec;
 }
 function undoMove(){
   const rec = S.undoMove;
   if (!rec){ toast("Nothing to undo"); return; }
+  if (!confirmLiveChange(siteOfWard(rec.wid))) return;
   const dest = S.rounds[rec.toIso] && S.rounds[rec.toIso].wards[rec.wid];
   const src = ensureWardEntry(rec.fromIso, rec.wid);
   if (!src.lines) src.lines = [];
@@ -2715,7 +3526,14 @@ function undoMove(){
   });
   if (dest && rec.destStatusBefore) dest.status = rec.destStatusBefore;
   S.undoMove = null;
-  save();
+  (rec.items||[]).forEach(it => {
+    shareTouchLine(rec.toIso, rec.wid, it.codeId, true);
+    shareTouchLine(rec.fromIso, rec.wid, it.codeId, false);
+    shareTouchTick(rec.fromIso, rec.wid, it.codeId);
+  });
+  shareTouchWard(rec.fromIso, rec.wid);
+  shareTouchWard(rec.toIso, rec.wid);
+  save(); shareKick();
   renderStay();
   toast("Move undone");
 }
@@ -2927,7 +3745,7 @@ function deliveryDraft(siteId){
   if (!cur.unit) cur.unit = "box";
   return cur;
 }
-function saveStocktake(siteId){
+function applyStocktakeDraft(siteId){
   const st = ensureStocktake(siteId);
   const draft = (S.stockDraft && S.stockDraft[siteId]) || {};
   const baseline = {};
@@ -2948,18 +3766,37 @@ function saveStocktake(siteId){
     bag[stockUnit(c.unit)] = n;
     baseline[cid] = bag;
   });
-  if (!any){ toast("Enter a count first"); return; }
+  if (!any) return false;
   st.baseline = baseline;
   st.savedAt = new Date().toISOString();
   st.tickedAtSave = tickTotalsForSite(siteId);
   S.stockDraft[siteId] = {};
   if (S.stockRestored) S.stockRestored[siteId] = {};
   syncCodeStockFromOnHand();
+  shareTouchStocktake(siteId);
   save();
   toast("Stocktake saved");
   renderStay();
+  shareKick();
+  return true;
+}
+function saveStocktake(siteId){
+  if (!confirmLiveChange(siteId)) return;
+  const draft = (S.stockDraft && S.stockDraft[siteId]) || {};
+  const any = Object.keys(draft).some(cid => {
+    const raw = draft[cid];
+    if (raw==="" || raw==null) return false;
+    const n = Number(raw);
+    return Number.isFinite(n) && n>=0 && codeById(cid) && codeById(cid).siteId===siteId && !codeById(cid).tickOnly;
+  });
+  if (!any){ toast("Enter a count first"); return; }
+  const go = () => { applyStocktakeDraft(siteId); };
+  if (typeof navigator!=="undefined" && navigator.onLine){
+    shareSync().then(go).catch(go);
+  } else go();
 }
 function addStockDelivery(siteId){
+  if (!confirmLiveChange(siteId)) return;
   const d = deliveryDraft(siteId);
   const c = codeById(d.codeId);
   const qty = Number(d.qty);
@@ -2967,25 +3804,32 @@ function addStockDelivery(siteId){
   if (!Number.isFinite(qty) || qty<=0){ toast("Enter a quantity"); return; }
   const date = (d.date && /^\d{4}-\d{2}-\d{2}$/.test(d.date)) ? d.date : zonedNow().iso;
   if (!S.stockDeliveries) S.stockDeliveries = [];
-  S.stockDeliveries.push({
+  const rec = {
     id: uid("dl-"), siteId, codeId:c.id, code:displayCode(c), name:c.name||"",
     qty, unit:stockUnit(d.unit), date, addedAt:new Date().toISOString()
-  });
+  };
+  S.stockDeliveries.push(rec);
   S.stockDeliveryDraft[siteId] = {codeId:"", qty:"", unit:"box", date:zonedNow().iso};
   if (S.stockRestored && S.stockRestored[siteId]) delete S.stockRestored[siteId][c.id];
   syncCodeStockFromOnHand();
+  shareTouchDelivery(rec.id);
+  shareTouchRestored(siteId, c.id);
   save();
   toast("Delivery added");
   renderStay();
+  shareKick();
 }
 function restoreStockItem(siteId, codeId){
+  if (!confirmLiveChange(siteId)) return;
   if (!S.stockRestored) S.stockRestored = {};
   if (!S.stockRestored[siteId]) S.stockRestored[siteId] = {};
   S.stockRestored[siteId][codeId] = true;
   if (currentSiteId()!==siteId) setCurrentSite(siteId);
+  shareTouchRestored(siteId, codeId);
   save();
   keepScroll = true;
   renderStay();
+  shareKick();
   setTimeout(() => {
     const inp = document.querySelector('input[data-act="stock-count"][data-cid="'+codeId+'"]');
     if (inp){ inp.scrollIntoView({block:"center"}); inp.focus(); }
@@ -3225,7 +4069,7 @@ function renderHistory(z, pop){
     return `<div class="card"><h2>${esc(w.name)}</h2>${rankBlock(w.name, bag, false)}</div>`;
   }).join("") || `<div class="card muted">No per-ward usage yet.</div>`;
 
-  const note = `<p class="phone-note">Each day’s list is saved automatically on this phone. Opening the link on another phone starts a fresh history.</p>`;
+  const note = `<p class="phone-note">Day and week records are shared, so you and your colleague can view POW and Children's — including past weeks — on this phone. A copy is also kept here for offline use.</p>`;
   const picker = `<label class="muted" for="hist-date">Open a day</label>
     <input id="hist-date" class="hist-date" type="date" data-act="history-date" value="${esc(route.day||z.iso)}">`;
 
@@ -3250,6 +4094,12 @@ function renderHistory(z, pop){
   }
 
   const days = recordedDays();
+  const mondays = Array.from(new Set(days.map(mondayOf))).sort().reverse();
+  const weekRows = mondays.map(m => {
+    const bag = weekGrandBag(m);
+    const tag = mondayOf(z.iso)===m ? " · this week" : "";
+    return `<a class="dayrow" href="#report/${esc(m)}"><span class="grow"><div>Week of ${esc(prettyDate(m))}${esc(tag)}</div><div class="muted">${esc(shortDate(m))} – ${esc(shortDate(addDays(m,4)))} · ${esc(fmtUnitBag(bag))}</div></span><span aria-hidden="true">›</span></a>`;
+  }).join("") || `<p class="muted">No weeks recorded yet. Finish a ward on the Round tab and it is saved here and shared automatically.</p>`;
   const dayRows = days.map(day => {
     const rep = dayReport(day, "all");
     const nW = rep.wards.length;
@@ -3260,6 +4110,8 @@ function renderHistory(z, pop){
   return `
     ${note}
     ${picker}
+    <h3>Past weeks</h3>
+    <div class="daylist">${weekRows}</div>
     <h3>Past days</h3>
     <div class="daylist">${dayRows}</div>
     <h3>Overall popularity</h3>
@@ -3288,7 +4140,7 @@ function renderReport(z){
       <button type="button" class="btn" data-act="week-next" aria-label="Next week">›</button>
     </div>
     <div class="filt noprint">${layoutBtns}</div>
-    <p class="phone-note noprint">Excel is the week file: POW and Children's on separate sheets, with By item, Item × day and By ward. Print and Copy follow the layout on screen. Saved on this phone only.</p>
+    <p class="phone-note noprint">Excel is the week file: POW and Children's on separate sheets, with By item, Item × day and By ward. Print and Copy follow the layout on screen. The week uses the shared records once they have synced, plus anything saved on this phone.</p>
     <div class="btnrow noprint" style="margin-top:0">
       <button type="button" class="btn primary" data-act="export-week-xlsx">⬇ Excel</button>
       <button type="button" class="btn" data-act="print-report">Print</button>
@@ -3347,6 +4199,12 @@ function renderSetup(){
   </div>`).join("");
   return `
     <div class="card">
+      <h2>Your name</h2>
+      <p class="muted">This phone remembers your name and adds it to shared changes.</p>
+      <div class="field"><label>Name</label>
+        <input data-act="set-staff-name" value="${esc(staffName())}" placeholder="Your name" autocomplete="name"></div>
+    </div>
+    <div class="card">
       <h2>WhatsApp</h2>
       <div class="field"><label>Recipient name</label>
         <input data-act="set-partner" value="${esc(S.settings.partnerName||"")}" placeholder="Recipient name"></div>
@@ -3385,7 +4243,7 @@ function renderSetup(){
         <input type="file" id="import-file" accept="application/json,.json" class="hidden">
       </div>
     </div>
-    <p class="brandfoot"><img src="icons/autoprod-logo-64.png" alt="">Ward Run v${esc(VERSION)} · by Autoprod<br>Data stays on this phone. No patient details.<br>© 2026 Autoprod. All rights reserved. Not for resale or redistribution.</p>
+    <p class="brandfoot"><img src="icons/autoprod-logo-64.png" alt="">Ward Run v${esc(VERSION)} · by Autoprod<br>Day, week and stock records are shared with anyone who has this link. This phone also keeps a local copy and works offline. No patient details.<br>© 2026 Autoprod. All rights reserved. Not for resale or redistribution.</p>
   `;
 }
 
@@ -3397,6 +4255,7 @@ function openWard(id){
   location.hash = "round/" + encodeURIComponent(id);
 }
 function addCodeToWard(wid, cid){
+  if (!confirmLiveChange(siteOfWard(wid))) return;
   const ww = wardById(wid); if (ww) touchRun(ww.siteId);
   sfx("tick"); buzz(8);
   const r = todayRound();
@@ -3410,11 +4269,14 @@ function addCodeToWard(wid, cid){
     if (e.status==="nothing") e.status="pending";
   }
   touchEntry(wid, e);
-  save(); renderStay();
+  shareTouchLine(r.date || zonedNow().iso, wid, cid, false);
+  shareTouchWard(r.date || zonedNow().iso, wid);
+  save(); renderStay(); shareKick();
   const ln = document.querySelector('.line[data-cid="' + (window.CSS && CSS.escape ? CSS.escape(cid) : cid) + '"]');
   if (ln) ln.classList.add("pulse");
 }
 function changeQty(wid, cid, dir){
+  if (!confirmLiveChange(siteOfWard(wid))) return;
   const e = wardEntry(todayRound(), wid);
   const line = e.lines.find(l => l.codeId===cid);
   if (!line) return;
@@ -3427,35 +4289,46 @@ function changeQty(wid, cid, dir){
     line.qty = (n==null ? 1 : n+1);
   }
   touchEntry(wid, e);
-  save(); renderStay();
+  shareTouchLine(zonedNow().iso, wid, cid, false);
+  shareTouchWard(zonedNow().iso, wid);
+  save(); renderStay(); shareKick();
 }
 function toggleLineUnit(wid, cid){
+  if (!confirmLiveChange(siteOfWard(wid))) return;
   const e = wardEntry(todayRound(), wid);
   const line = e.lines.find(l => l.codeId===cid);
   if (!line) return;
   line.unit = lineUnit(line)==="ea" ? "box" : "ea";
   touchEntry(wid, e);
-  save(); renderStay();
+  shareTouchLine(zonedNow().iso, wid, cid, false);
+  shareTouchWard(zonedNow().iso, wid);
+  save(); renderStay(); shareKick();
 }
 function removeLine(wid, cid){
+  if (!confirmLiveChange(siteOfWard(wid))) return;
   const e = wardEntry(todayRound(), wid);
   e.lines = e.lines.filter(l => l.codeId!==cid);
   touchEntry(wid, e);
-  save(); renderStay();
+  shareTouchLine(zonedNow().iso, wid, cid, true);
+  shareTouchWard(zonedNow().iso, wid);
+  save(); renderStay(); shareKick();
 }
 function markWard(wid, status){
+  if (!confirmLiveChange(siteOfWard(wid))) return;
   const e = wardEntry(todayRound(), wid);
   const mw = wardById(wid); if (mw) touchRun(mw.siteId);
   if ((status==="checked" || status==="nothing") && e.status===status){
     e.status = "pending";
     touchEntry(wid, e);
-    save();
+    shareTouchWard(zonedNow().iso, wid);
+    save(); shareKick();
     renderStay();
     return;
   }
   e.status = status;
   touchEntry(wid, e);
-  save();
+  shareTouchWard(zonedNow().iso, wid);
+  save(); shareKick();
   if (status==="checked" || status==="nothing"){
     const ww = wardById(wid);
     const wards = scheduledWards(ww ? ww.siteId : currentSiteId(), zonedNow().iso);
@@ -3471,13 +4344,15 @@ function markWard(wid, status){
   render();
 }
 function tickItem(wid, cid){
+  if (!confirmLiveChange(siteOfWard(wid))) return;
   const day = zonedNow().iso;
   if (!S.trolley[day]) S.trolley[day] = {};
   const key = tickKey(day, wid, cid);
   S.trolley[day][key] = !S.trolley[day][key];
   if (S.trolley[day][key]){ sfx("tick"); buzz(8); }
   syncCodeStockFromOnHand();
-  save(); renderStay();
+  shareTouchTick(day, wid, cid);
+  save(); renderStay(); shareKick();
 }
 function changeStock(cid, dir){
   const c = codeById(cid); if (!c) return;
@@ -3631,6 +4506,7 @@ document.addEventListener("click", (ev) => {
     return;
   }
   if (act==="celebrate-close"){ clearTimeout(celebrateTimer); document.getElementById("celebrate").classList.remove("show"); return; }
+  if (act==="share-retry"){ shareKick(); return; }
   if (act==="sound"){ G.sound = !G.sound; gSave(); render(); if (G.sound){ sfx("done"); buzz(15); } toast(G.sound ? "Sound and vibration on" : "Muted"); return; }
   if (act==="game-reset"){
     if (!confirm("Reset XP, badges and best times? Your stock data is not touched.")) return;
@@ -3655,6 +4531,8 @@ document.addEventListener("click", (ev) => {
   if (act==="export-csv"){ exportCsv(); return; }
   if (act==="set-site") setCurrentSite(b.dataset.id);
   if (act==="open-ward") openWard(b.dataset.id);
+  if (act==="suggest-add"){ addSuggested(b.dataset.wid, b.dataset.cid, b.dataset.qty, b.dataset.unit); return; }
+  if (act==="suggest-more"){ usualExpanded[b.dataset.wid] = !usualExpanded[b.dataset.wid]; renderStay(); return; }
   if (act==="add-code") addCodeToWard(b.dataset.wid, b.dataset.cid);
   if (act==="qty") changeQty(b.dataset.wid, b.dataset.cid, Number(b.dataset.dir));
   if (act==="line-unit") toggleLineUnit(b.dataset.wid, b.dataset.cid);
@@ -3939,6 +4817,7 @@ document.addEventListener("input", (ev) => {
   }
   if (act==="set-partner"){ S.settings.partnerName = t.value; save(); }
   if (act==="set-wa"){ S.settings.waNumber = t.value; save(); }
+  if (act==="set-staff-name"){ S.settings.staffName = t.value; save(); }
   if (act==="code-par"){
     const c = codeById(t.dataset.id); if (!c) return;
     c.par = Math.max(0, Number(t.value)||0); save();
@@ -3996,6 +4875,8 @@ if (!location.hash){
 if ("serviceWorker" in navigator && !/e2e=1/.test(location.search)){
   navigator.serviceWorker.register("sw.js").catch(()=>{});
 }
+if (!staffName()) setTimeout(() => askStaffName(false), 0);
+shareStart();
 })();
 </script>
 </body>
