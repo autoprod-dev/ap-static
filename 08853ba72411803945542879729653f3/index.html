@@ -87,6 +87,20 @@ a.btn:visited{color:var(--ink)}
   font-size:14px;line-height:1;color:var(--muted);cursor:pointer;padding:0;z-index:1}
 .codewrap .starbtn.on{color:#c9a227}
 .fluid-group h3,.favblock h3{margin:14px 0 6px;font-size:.78rem;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.wardbar{height:3px;background:#e8ecef;border-radius:99px;margin-top:6px;overflow:hidden}
+.wardbar>span{display:block;height:100%;background:var(--teal);border-radius:99px}
+.streakchip{display:inline-flex;align-items:center;gap:4px;font-size:.78rem;font-weight:800;color:var(--teal-d);margin-top:4px}
+.quicktaps{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 10px}
+.quicktaps button{min-height:40px;padding:6px 10px;border-radius:12px;border:1px solid var(--line);background:#fff;font-weight:800;font-size:.82rem}
+.missrow,.loadrow,.co-row{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 10px;min-height:48px;border:1px solid var(--line);background:var(--card);border-radius:12px;margin-bottom:8px}
+.var-ok{color:var(--ok)}.var-short{color:var(--red)}.var-over{color:var(--amber)}
+@keyframes wardpop{0%{transform:scale(.86);opacity:0}35%{transform:scale(1.06);opacity:1}100%{transform:scale(1);opacity:0}}
+.ward-pop{position:fixed;left:50%;top:42%;transform:translate(-50%,-50%);z-index:80;pointer-events:none;
+  width:88px;height:88px;border-radius:50%;background:var(--teal);color:#fff;display:grid;place-items:center;font-size:2.2rem;font-weight:800;
+  animation:wardpop .7s ease both;box-shadow:0 8px 24px rgba(18,32,42,.18)}
+@media (prefers-reduced-motion:reduce){
+  .ward-pop{animation:none;opacity:0;display:none}
+}
 .line{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
 .line:last-child{border-bottom:0}
 .line .code{font-weight:800;font-variant-numeric:tabular-nums}
@@ -479,7 +493,7 @@ h3{margin:10px 0 6px}
 (function(){
 "use strict";
 
-const VERSION = "1.6.1";
+const VERSION = "1.7.0";
 const STORE = "ward-run-v1";
 const TZ = "Australia/Sydney";
 const DOW = {Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6};
@@ -1472,7 +1486,7 @@ let G = null;
 let lastTap = null;
 let audioCtx = null;
 
-function gDefault(){ return {v:1, banked:0, bonus:{}, runs:{}, best:{}, badges:{}, sound:true, bestStreak:0, lastLevel:0, fresh:true}; }
+function gDefault(){ return {v:1, banked:0, bonus:{}, runs:{}, best:{}, badges:{}, sound:false, haptic:true, bestStreak:0, lastLevel:0, fresh:true}; }
 function gLoad(){
   try{ G = Object.assign(gDefault(), JSON.parse(localStorage.getItem(GSTORE)||"{}")); }
   catch(e){ G = gDefault(); }
@@ -1480,6 +1494,8 @@ function gLoad(){
   if (!G.runs || typeof G.runs!=="object") G.runs = {};
   if (!G.best || typeof G.best!=="object") G.best = {};
   if (!G.badges || typeof G.badges!=="object") G.badges = {};
+  if (G.haptic == null) G.haptic = true;
+  if (G.sound == null) G.sound = false;
   // Fold bonus entries older than 45 days into a single banked total so the store stays small.
   const cutoff = addDays(zonedNow().iso, -45);
   Object.keys(G.bonus).forEach(k => {
@@ -1515,8 +1531,13 @@ function todayXp(iso){
   Object.entries(G.bonus).forEach(([k,v]) => { if (k.split("|")[1]===iso) xp += Number(v)||0; });
   return xp;
 }
+function closeoutDays(){
+  return [...new Set((S.closeouts||[]).map(c => c && c.day).filter(Boolean))];
+}
 function activeDays(){
-  return Object.keys(S.rounds||{}).filter(d => Object.values((S.rounds[d]||{}).wards||{}).some(isDone)).sort();
+  const fromRounds = Object.keys(S.rounds||{}).filter(d => Object.values((S.rounds[d]||{}).wards||{}).some(isDone));
+  const days = [...new Set(fromRounds.concat(closeoutDays()))].sort();
+  return days;
 }
 // Streak of working days in a row. Weekends never break it.
 function onlyWeekendBetween(a, b){
@@ -1593,9 +1614,10 @@ function sfx(kind){
     });
   }catch(e){}
 }
+function hapticOn(){ return !G || G.haptic!==false; }
 function buzz(p){
-  if (!G || !G.sound) return;
-  try{ if (navigator.vibrate) navigator.vibrate(p); }catch(e){}
+  if (!hapticOn()) return;
+  try{ if (navigator.vibrate) navigator.vibrate(typeof p==="number" ? p : (p||12)); }catch(e){}
 }
 function floatText(text, cls){
   const layer = document.getElementById("pops");
@@ -1761,6 +1783,7 @@ function renderHero(z){
       <div class="rt"><b>${p.done}/${p.total}</b><span>wards</span></div></div>
     <div class="grow">
       <div class="hs">${esc(status)}</div>
+      <div class="streakchip" title="Days with a finished round or a close-out. Weekends do not break the streak.">${streakDays()||0} day streak</div>
     </div>
   </section>`;
 }
@@ -1788,8 +1811,118 @@ function renderTrophies(z){
 
 /* ===== v1.2.0 stocktake: barcode scan, variance, manager export ===== */
 const BSTORE = "ward-run-barcodes-v1";
-function bLoad(){ try{ const o = JSON.parse(localStorage.getItem(BSTORE)||"{}"); return (o && o.map && typeof o.map==="object") ? o : {map:{}}; }catch(e){ return {map:{}}; } }
-function bSave(o){ try{ localStorage.setItem(BSTORE, JSON.stringify(o)); }catch(e){} }
+function bLoad(){
+  try{
+    const o = JSON.parse(localStorage.getItem(BSTORE)||"{}");
+    if (!o || typeof o!=="object") return {map:{}, at:{}, gone:{}};
+    if (!o.map || typeof o.map!=="object") o.map = {};
+    if (!o.at || typeof o.at!=="object") o.at = {};
+    if (!o.gone || typeof o.gone!=="object") o.gone = {};
+    return o;
+  }catch(e){ return {map:{}, at:{}, gone:{}}; }
+}
+function bSave(o){ try{ localStorage.setItem(BSTORE, JSON.stringify(o||bLoad())); }catch(e){} }
+function shareTouchBarcode(raw){
+  if (shareApplying) return;
+  const key = String(raw||"").trim();
+  if (!key) return;
+  const sh = ensureShare();
+  sh.barcodeAt[key] = shareNow();
+  sh.status = navigator.onLine ? "pending" : "offline";
+}
+function linkBarcode(raw, codeId, replace){
+  const key = String(raw||"").trim();
+  if (!key || !codeId) return false;
+  const o = bLoad();
+  const prev = o.map[key];
+  if (prev && prev!==codeId && !replace) return false;
+  if (prev===codeId && o.at[key]) return true;
+  o.map[key] = codeId;
+  o.at[key] = shareNow();
+  if (o.gone) delete o.gone[key];
+  bSave(o);
+  shareTouchBarcode(key);
+  return true;
+}
+function applyRemoteBarcode(row){
+  const key = String((row && (row.barcode||row.code))||"").trim();
+  if (!key) return false;
+  const sh = ensureShare();
+  if (!tsNewer(row.updated_at, sh.barcodeAt[key] || (bLoad().at||{})[key])) {
+    shareRemoteAt.barcodes[key] = row.updated_at;
+    return false;
+  }
+  /* Merge only. Never wipe other local links. A remote delete does not remove a local link. */
+  if (row.deleted){
+    sh.barcodeAt[key] = row.updated_at;
+    shareRemoteAt.barcodes[key] = row.updated_at;
+    return false;
+  }
+  const codeId = row.code_id;
+  if (!codeId) return false;
+  const o = bLoad();
+  const prev = o.map[key];
+  if (prev===codeId){
+    o.at[key] = row.updated_at;
+    bSave(o);
+    sh.barcodeAt[key] = row.updated_at;
+    shareRemoteAt.barcodes[key] = row.updated_at;
+    return false;
+  }
+  /* If we already have a different local link and it is newer, keep local. */
+  if (prev && tsNewer(o.at[key], row.updated_at)) {
+    shareRemoteAt.barcodes[key] = row.updated_at;
+    return false;
+  }
+  o.map[key] = codeId;
+  o.at[key] = row.updated_at;
+  bSave(o);
+  sh.barcodeAt[key] = row.updated_at;
+  shareRemoteAt.barcodes[key] = row.updated_at;
+  return true;
+}
+function collectPushBarcodes(){
+  const sh = ensureShare();
+  const o = bLoad();
+  const rows = [];
+  Object.keys(sh.barcodeAt||{}).forEach(key => {
+    const codeId = o.map[key];
+    if (!codeId) return;
+    const c = codeById(codeId);
+    rows.push({
+      barcode: key,
+      code_id: codeId,
+      site_id: (c && c.siteId) || currentSiteId(),
+      deleted: false,
+      updated_at: sh.barcodeAt[key] || o.at[key] || shareNow(),
+      device_id: sh.deviceId,
+      actor: staffName()||null
+    });
+  });
+  return rows;
+}
+function gerardCatalogueCodes(){
+  /* Gerard's lists only. Never include the hidden Prabin area. */
+  const sites = [SITE_POW, SITE_CH];
+  const out = [];
+  const seen = new Set();
+  sites.forEach(sid => {
+    siteCodes(sid).forEach(c => {
+      if (!c || c.tickOnly || seen.has(c.id)) return;
+      seen.add(c.id);
+      out.push(c);
+    });
+  });
+  return out;
+}
+function linkedCodeIds(){
+  const ids = new Set(Object.values(bLoad().map||{}));
+  return ids;
+}
+function missingBarcodeCodes(){
+  const have = linkedCodeIds();
+  return gerardCatalogueCodes().filter(c => !have.has(c.id));
+}
 
 function loadVendor(src, globalName){
   if (window[globalName]) return Promise.resolve(window[globalName]);
@@ -1954,7 +2087,11 @@ async function startCamera(done){
 
 function handleScan(raw, siteId, onCode){
   const m = matchScan(raw, siteId);
-  if (m.code){ onCode(m.code, raw); return; }
+  if (m.code){
+    if (m.how!=="saved") { linkBarcode(raw, m.code.id, false); shareKick(); }
+    onCode(m.code, raw);
+    return;
+  }
   pickForBarcode(raw, siteId, m.candidates||[], onCode);
 }
 function pickForBarcode(raw, siteId, candidates, onCode){
@@ -1977,7 +2114,8 @@ function pickForBarcode(raw, siteId, candidates, onCode){
     if (p){
       const c = codeById(p.dataset.pick); close();
       if (!c) return;
-      const o = bLoad(); o.map[raw] = c.id; bSave(o);
+      linkBarcode(raw, c.id, true);
+      shareKick();
       toast("Barcode linked to " + displayCode(c));
       onCode(c, raw);
       return;
@@ -1990,7 +2128,8 @@ function pickForBarcode(raw, siteId, candidates, onCode){
         code = String(code||"").trim(); if (!code) return;
         let c = siteCodes(siteId).find(x => !x.tickOnly && x.code.toLowerCase()===code.toLowerCase());
         if (!c){ c = newCode(code, String(name||"").trim(), siteId); S.codes.push(c); save(); }
-        const o = bLoad(); o.map[raw] = c.id; bSave(o);
+        linkBarcode(raw, c.id, true);
+        shareKick();
         onCode(c, raw);
       });
     }
@@ -2263,7 +2402,9 @@ function defaultState(){
     stockDeliveries: [],
     stockRestored: {},
     stockDeliveryDraft: {},
-    stars: {}
+    stars: {},
+    closeouts: [],
+    spotChecks: []
   };
 }
 
@@ -2557,10 +2698,21 @@ function migrate(s){
   if (st.staffName == null) st.staffName = "";
   initStocktakeFromExisting(s);
   if (!s.stars || typeof s.stars!=="object") s.stars = {};
+  if (!Array.isArray(s.closeouts)) s.closeouts = [];
+  if (!Array.isArray(s.spotChecks)) s.spotChecks = [];
   if (s.settings && s.settings.showPrabinArea == null) s.settings.showPrabinArea = false;
   seedPrabinArea(s);
   ensureShare(s);
   shareSeedLocal(s);
+  (function seedBarcodes(s){
+    const sh = ensureShare(s);
+    if (sh.barcodesSeeded) return;
+    const o = bLoad();
+    Object.keys(o.map||{}).forEach(k => {
+      if (!sh.barcodeAt[k]) sh.barcodeAt[k] = o.at[k] || shareNow();
+    });
+    sh.barcodesSeeded = true;
+  })(s);
   s.version = Math.max(Number(s.version)||1, 2);
   s.appVersion = VERSION;
 }
@@ -2592,7 +2744,9 @@ const SHARE_TABLE = {
   restored: "ward_run_stock_restored",
   pack: "ward_run_code_pack",
   par: "ward_run_code_par",
-  wardDefs: "ward_run_ward_defs"
+  wardDefs: "ward_run_ward_defs",
+  barcodes: "ward_run_barcodes",
+  closeouts: "ward_run_closeouts"
 };
 
 let shareBusy = false;
@@ -2600,7 +2754,7 @@ let shareAgain = false;
 let shareTimer = 0;
 let shareApplying = false;
 let shareStarted = false;
-const shareRemoteAt = {ticks:{}, lines:{}, wards:{}, stock:{}, baseline:{}, ticked:{}, deliveries:{}, restored:{}, pack:{}, par:{}, defs:{}};
+const shareRemoteAt = {ticks:{}, lines:{}, wards:{}, stock:{}, baseline:{}, ticked:{}, deliveries:{}, restored:{}, pack:{}, par:{}, defs:{}, barcodes:{}, closeouts:{}};
 
 function shareNow(){ return new Date().toISOString(); }
 function tsMs(s){ const n = Date.parse(s||""); return Number.isFinite(n) ? n : 0; }
@@ -2687,6 +2841,8 @@ function ensureShare(s){
   sh.parAt = sh.parAt && typeof sh.parAt==="object" ? sh.parAt : {};
   sh.defAt = sh.defAt && typeof sh.defAt==="object" ? sh.defAt : {};
   sh.defGone = sh.defGone && typeof sh.defGone==="object" ? sh.defGone : {};
+  sh.barcodeAt = sh.barcodeAt && typeof sh.barcodeAt==="object" ? sh.barcodeAt : {};
+  sh.closeoutAt = sh.closeoutAt && typeof sh.closeoutAt==="object" ? sh.closeoutAt : {};
   if (!sh.status) sh.status = navigator.onLine ? "pending" : "offline";
   return sh;
 }
@@ -3371,7 +3527,7 @@ function collectPushStock(){
 }
 
 async function sharePull(){
-  const [ticks, lines, wards, stocktakes, baseline, ticked, deliveries, restored, pack, par, defs] = await Promise.all([
+  const [ticks, lines, wards, stocktakes, baseline, ticked, deliveries, restored, pack, par, defs, barcodes, closeouts] = await Promise.all([
     shareSelect(SHARE_TABLE.ticks),
     shareSelect(SHARE_TABLE.lines),
     shareSelect(SHARE_TABLE.wards),
@@ -3382,7 +3538,9 @@ async function sharePull(){
     shareSelect(SHARE_TABLE.restored),
     shareSelect(SHARE_TABLE.pack),
     shareSelect(SHARE_TABLE.par),
-    shareSelectOptional(SHARE_TABLE.wardDefs)
+    shareSelectOptional(SHARE_TABLE.wardDefs),
+    shareSelectOptional(SHARE_TABLE.barcodes),
+    shareSelectOptional(SHARE_TABLE.closeouts)
   ]);
   shareApplying = true;
   let changed = false;
@@ -3398,6 +3556,8 @@ async function sharePull(){
     (pack||[]).forEach(r => { if (applyRemotePack(r)) changed = true; });
     (par||[]).forEach(r => { if (applyRemotePar(r)) changed = true; });
     (defs||[]).forEach(r => { if (applyRemoteWardDef(r)) changed = true; });
+    (barcodes||[]).forEach(r => { if (applyRemoteBarcode(r)) changed = true; });
+    (closeouts||[]).forEach(r => { if (applyRemoteCloseout(r)) changed = true; });
     applyOfficialNames(S);
     if (changed) syncCodeStockFromOnHand();
   } finally {
@@ -3419,6 +3579,8 @@ async function sharePush(){
   await shareUpsert(SHARE_TABLE.pack, "site_id,code_id", st.pack);
   await shareUpsert(SHARE_TABLE.par, "site_id,code_id", st.par);
   await shareUpsertOptional(SHARE_TABLE.wardDefs, "ward_id", collectPushWardDefs());
+  await shareUpsertOptional(SHARE_TABLE.barcodes, "barcode", collectPushBarcodes());
+  await shareUpsertOptional(SHARE_TABLE.closeouts, "id", collectPushCloseouts());
 }
 
 async function shareSync(){
@@ -3881,7 +4043,7 @@ function setCodePar(c, value){
 function suggestedOrderQty(siteId, c){
   const par = parBoxes(c);
   if (!par) return "";
-  return Math.max(0, par - onHandBoxes(onHandUnits(siteId, c.id)));
+  return Math.max(0, par - closingBoxesFor(siteId, c.id));
 }
 function orderQtyValue(line){
   if (!line || line.qty==="" || line.qty==null) return "";
@@ -3966,6 +4128,8 @@ function parseRoute(){
   else if (page==="history") route = {page:"history", wardId:null, day:parts[1] ? decodeURIComponent(parts[1]) : null, week:null};
   else if (page==="report") route = {page:"report", wardId:null, day:null, week:parts[1] ? decodeURIComponent(parts[1]) : null};
   else if (page==="setup") route = {page:"setup", wardId:null, day:null, week:null};
+  else if (page==="closeouts") route = {page:"closeouts", wardId:null, day:parts[1] ? decodeURIComponent(parts[1]) : null, week:null};
+  else if (page==="spotcheck") route = {page:"spotcheck", wardId:null, day:null, week:null};
   else route = {page, wardId:null, day:null, week:null};
 }
 
@@ -3996,8 +4160,10 @@ function render(opts){
   else if (page==="history" || page==="more") view.innerHTML = renderMore(z);
   else if (page==="report") view.innerHTML = renderReport(z);
   else if (page==="setup") view.innerHTML = renderSetup();
+  else if (page==="closeouts") view.innerHTML = renderCloseoutHistory(z);
+  else if (page==="spotcheck") view.innerHTML = renderSpotCheck(z);
   else view.innerHTML = renderRoundList(z);
-  const navPage = (page==="round-ward") ? "round" : (page==="history"||page==="setup"||page==="report") ? "more" : page;
+  const navPage = (page==="round-ward") ? "round" : (page==="history"||page==="setup"||page==="report"||page==="closeouts"||page==="spotcheck") ? "more" : page;
   document.querySelectorAll("nav.tabbar a").forEach(a => a.classList.toggle("on", a.dataset.nav===navPage));
   const pin = () => window.scrollTo(0, y);
   pin();
@@ -4022,7 +4188,7 @@ function renderSiteToggle(){
 
 function renderBar(z){
   const bar = document.getElementById("appbar");
-  const back = route.page==="round-ward" || route.page==="setup" || route.page==="history" || route.page==="report";
+  const back = route.page==="round-ward" || route.page==="setup" || route.page==="history" || route.page==="report" || route.page==="closeouts" || route.page==="spotcheck";
   let title = "Fluid Run";
   let sub = shortDate(z.iso);
   if (route.page==="round-ward"){
@@ -4036,6 +4202,8 @@ function renderBar(z){
   else if (route.page==="history") title = route.day ? shortDate(route.day) : "History";
   else if (route.page==="report") title = "Weekly report";
   else if (route.page==="more") title = "More";
+  else if (route.page==="closeouts") title = route.day ? "Close-out "+shortDate(route.day) : "Close-out history";
+  else if (route.page==="spotcheck") title = "Spot-check";
   let extra = "";
   if (route.page==="round" || route.page==="round-ward"){
     const r = todayRound();
@@ -4111,6 +4279,24 @@ function usualNeedsForWard(wid, hideIso){
     return {codeId:id, hits:hits[id], qty: qty==null?1:qty, unit, code:codeById(id)};
   });
 }
+function renderQuickTaps(w){
+  if (!w) return "";
+  const bag = wardHitBag(w.id, zonedNow().iso);
+  const ids = Object.keys(bag).filter(id => (bag[id].hits||0)>0 && codeById(id) && codeById(id).siteId===w.siteId)
+    .sort((a,b) => (bag[b].hits||0)-(bag[a].hits||0) || a.localeCompare(b))
+    .slice(0, 6);
+  if (!ids.length){
+    const favs = favouriteCodes(w.siteId).slice(0, 6);
+    if (!favs.length) return "";
+    const btns = favs.map(c => `<button type="button" class="btn" data-act="add-code" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}">${esc(displayCodeLabel(c))}</button>`).join("");
+    return `<div class="card" style="padding:10px 12px"><div class="muted" style="margin-bottom:6px">Quick tap</div><div class="quicktaps">${btns}</div></div>`;
+  }
+  const btns = ids.map(id => {
+    const c = codeById(id);
+    return `<button type="button" class="btn" data-act="add-code" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}">${esc(displayCodeLabel(c))}</button>`;
+  }).join("");
+  return `<div class="card" style="padding:10px 12px"><div class="muted" style="margin-bottom:6px">Quick tap</div><div class="quicktaps">${btns}</div></div>`;
+}
 function renderUsualNeeds(wid, iso, asCard){
   const rows = usualNeedsForWard(wid, iso);
   if (!rows.length) return "";
@@ -4166,13 +4352,22 @@ function renderWardButton(w, r, pop, medal, extraCls){
   else if (status==="checked"){ chip = `<span class="chip ok">Checked</span>`; meta = n + (n===1?" code":" codes"); }
   else if (n){ chip = `<span class="chip warn">In progress</span>`; meta = n + (n===1?" code":" codes"); }
   const done = isDone(e);
+  const ticks = (S.trolley[zonedNow().iso]||{});
+  const lineN = n;
+  const tickN = (e && e.lines||[]).filter(l => l && l.codeId && ticks[tickKey(zonedNow().iso, w.id, l.codeId)]).length;
+  let bar = "";
+  if (lineN){
+    const pct = Math.round(tickN/lineN*100);
+    meta = tickN + " of " + lineN + " done";
+    bar = `<div class="wardbar" aria-hidden="true"><span style="width:${pct}%"></span></div>`;
+  }
   const cls = (done ? " done" : (n ? " prog" : "")) + (extraCls ? " "+extraCls : "");
   const day = `<span class="daychip">${esc(fmtDays(w))}</span>`;
   const note = w.notes ? `<div class="wardnote">${esc(w.notes)}</div>` : "";
   const usual = renderUsualNeeds(w.id, zonedNow().iso, false);
   const btn = `<button class="ward${cls}" data-act="open-ward" data-id="${esc(w.id)}">
     <span class="medal" aria-hidden="true">${done?"✓":medal}</span>
-    <div class="grow"><div class="name">${esc(w.name)}</div><div class="muted">${day}${esc(meta)}</div>${note}</div>
+    <div class="grow"><div class="name">${esc(w.name)}</div><div class="muted">${day}${esc(meta)}</div>${bar}${note}</div>
     ${chip}
   </button>`;
   return usual ? `<div class="wardwrap">${btn}${usual}</div>` : btn;
@@ -4252,6 +4447,7 @@ function renderRoundWard(z){
       <button class="btn big grow ${st==="checked"?"ok":"primary"}" data-act="mark" data-wid="${esc(w.id)}" data-status="checked">${st==="checked"?"Done ✓ — tap to uncheck":"Mark done ✓"}</button>
     </div>
     ${renderUsualNeeds(w.id, z.iso, true)}
+    ${renderQuickTaps(w)}
     <div class="card" style="margin-top:12px"><h2>This ward</h2>${lineHtml}</div>
     <button type="button" class="scanbtn" data-act="scan-ward" data-wid="${esc(w.id)}"><span aria-hidden="true">📷</span>Scan barcode</button>
     ${picker}
@@ -4463,9 +4659,268 @@ function beginTransferOne(wid, cid, fromIso){
 }
 
 
+function shareTouchCloseout(id){
+  if (shareApplying || !id) return;
+  const sh = ensureShare();
+  sh.closeoutAt[id] = shareNow();
+  sh.status = navigator.onLine ? "pending" : "offline";
+}
+function applyRemoteCloseout(row){
+  if (!row || !row.id) return false;
+  const sh = ensureShare();
+  if (!tsNewer(row.updated_at, sh.closeoutAt[row.id])) {
+    shareRemoteAt.closeouts[row.id] = row.updated_at;
+    return false;
+  }
+  if (row.deleted){
+    sh.closeoutAt[row.id] = row.updated_at;
+    shareRemoteAt.closeouts[row.id] = row.updated_at;
+    return false; /* never delete a saved close-out locally */
+  }
+  if (!Array.isArray(S.closeouts)) S.closeouts = [];
+  const totals = parseMoved(row.totals) || row.totals || [];
+  let rec = S.closeouts.find(c => c.id===row.id);
+  if (!rec){
+    rec = {id:row.id};
+    S.closeouts.push(rec);
+  }
+  rec.day = row.day;
+  rec.siteId = row.site_id;
+  rec.savedAt = row.saved_at || row.updated_at;
+  rec.actor = row.actor || "";
+  rec.totals = totals;
+  rec.updatedAt = row.updated_at;
+  sh.closeoutAt[row.id] = row.updated_at;
+  shareRemoteAt.closeouts[row.id] = row.updated_at;
+  return true;
+}
+function collectPushCloseouts(){
+  const sh = ensureShare();
+  const rows = [];
+  (S.closeouts||[]).forEach(c => {
+    if (!c || !c.id) return;
+    if (!sh.closeoutAt[c.id]) return;
+    rows.push({
+      id: c.id,
+      day: c.day,
+      site_id: c.siteId,
+      saved_at: c.savedAt || c.updatedAt,
+      totals: dumpMoved(c.totals||[]),
+      deleted: false,
+      updated_at: sh.closeoutAt[c.id],
+      device_id: sh.deviceId,
+      actor: c.actor || staffName()||null
+    });
+  });
+  return rows;
+}
+function snapshotCloseoutTotals(siteId){
+  const sid = siteId || currentSiteId();
+  const used = {};
+  const iso = zonedNow().iso;
+  const r = S.rounds[iso];
+  if (r){
+    Object.entries(r.wards||{}).forEach(([wid, e]) => {
+      const w = wardById(wid);
+      if (!w || w.siteId!==sid) return;
+      (e.lines||[]).forEach(l => { if (l && l.codeId) used[l.codeId] = true; });
+    });
+  }
+  const rows = [];
+  stockCodes(sid).forEach(c => {
+    const u = onHandUnits(sid, c.id);
+    const boxes = onHandBoxes(u);
+    const loose = (u && u.pack && u.ea) ? u.ea : 0;
+    if (boxes || loose || used[c.id] || parBoxes(c)){
+      rows.push({codeId:c.id, code:displayCode(c), name:displayMeta(c)||c.name||"", box:boxes, ea:loose, pack:packSize(c)||null, par:parBoxes(c), onHand:formatStockQty?formatStockQty(u):formatOnHand(u)});
+    }
+  });
+  return rows;
+}
+function latestCloseout(siteId, day){
+  const list = (S.closeouts||[]).filter(c => c && c.siteId===siteId && (!day || c.day===day));
+  list.sort((a,b) => String(b.savedAt||"").localeCompare(String(a.savedAt||"")));
+  return list[0] || null;
+}
+function closeoutsForDay(siteId, day){
+  return (S.closeouts||[]).filter(c => c && c.siteId===siteId && c.day===day)
+    .sort((a,b) => String(b.savedAt||"").localeCompare(String(a.savedAt||"")));
+}
+function saveDailyCloseout(siteId){
+  const sid = siteId || currentSiteId();
+  const iso = zonedNow().iso;
+  if (!confirmLiveChange(sid)) return null;
+  const existing = closeoutsForDay(sid, iso);
+  if (existing.length){
+    if (!confirm("Save another close-out for today? Earlier close-outs stay in history and are not overwritten.")) return null;
+  }
+  const rec = {
+    id: "co-"+iso+"-"+sid+"-"+Date.now().toString(36),
+    day: iso,
+    siteId: sid,
+    savedAt: new Date().toISOString(),
+    actor: staffName()||"",
+    totals: snapshotCloseoutTotals(sid)
+  };
+  if (!Array.isArray(S.closeouts)) S.closeouts = [];
+  S.closeouts.push(rec);
+  shareTouchCloseout(rec.id);
+  save();
+  shareKick();
+  toast("Close-out saved for " + shortDate(iso));
+  return rec;
+}
+function closingBoxesFor(siteId, cid){
+  const co = latestCloseout(siteId, zonedNow().iso);
+  if (co && Array.isArray(co.totals)){
+    const row = co.totals.find(x => x.codeId===cid);
+    if (row) return Number(row.box)||0;
+  }
+  return onHandBoxes(onHandUnits(siteId, cid));
+}
+function loadTrolleyRows(siteId, iso){
+  const sid = siteId || currentSiteId();
+  const bag = {};
+  const r = S.rounds[iso];
+  if (r){
+    Object.entries(r.wards||{}).forEach(([wid, e]) => {
+      const w = wardById(wid);
+      if (!w || w.siteId!==sid) return;
+      (e.lines||[]).forEach(l => {
+        if (!l || !l.codeId) return;
+        const c = codeById(l.codeId);
+        if (!c) return;
+        const key = l.codeId;
+        if (!bag[key]) bag[key] = {c, box:0, ea:0};
+        const n = qtyNum(l.qty);
+        if (n==null) return;
+        if (lineUnit(l)==="ea") bag[key].ea += n;
+        else bag[key].box += n;
+      });
+    });
+  }
+  const order = codeOrder(sid);
+  const rows = [];
+  const seen = new Set();
+  order.forEach(id => {
+    if (bag[id]){ rows.push(bag[id]); seen.add(id); }
+  });
+  Object.keys(bag).forEach(id => { if (!seen.has(id)) rows.push(bag[id]); });
+  return rows;
+}
+function renderLoadTrolley(z){
+  const sid = currentSiteId();
+  const rows = loadTrolleyRows(sid, z.iso);
+  if (!rows.length) return `<div class="card"><h2>Load trolley</h2><p class="muted">No fluids entered on today’s round yet.</p></div>`;
+  const body = rows.map(r => {
+    const q = [];
+    if (r.box) q.push(r.box+" box");
+    if (r.ea) q.push(r.ea+" ea");
+    return `<div class="loadrow"><div class="grow"><div class="code">${esc(displayCodeLabel(r.c))}</div><div class="muted">${esc(displayMeta(r.c)||"")}</div></div><b>${esc(q.join(" + ")||"—")}</b></div>`;
+  }).join("");
+  return `<div class="card"><h2>Load trolley</h2><p class="muted">Today’s entered list, added up per fluid, in shelf order.</p>${body}</div>`;
+}
+function renderMissingBarcodes(){
+  const miss = missingBarcodeCodes();
+  if (!miss.length) return `<div class="card"><h2>Missing barcode</h2><p class="muted">Every item in the POW and Children’s lists has a barcode linked.</p></div>`;
+  const rows = miss.map(c => `<button type="button" class="missrow" data-act="capture-barcode" data-cid="${esc(c.id)}" data-site="${esc(c.siteId)}">
+    <div class="grow"><div class="code">${esc(displayCodeLabel(c))}</div><div class="muted">${esc(displayMeta(c)||c.name||"")}</div></div>
+    <span class="chip">Scan to link</span>
+  </button>`).join("");
+  return `<div class="card"><h2>Missing barcode <span class="chip warn">${miss.length}</span></h2>
+    <p class="muted">Items with no barcode linked yet. Tap one, scan its box, and it drops off this list. Links sync to the other phone once shared.</p>${rows}</div>`;
+}
+function renderCloseoutCard(z){
+  const sid = currentSiteId();
+  const rec = latestCloseout(sid, z.iso);
+  let body = "";
+  if (rec){
+    const when = rec.savedAt ? shortDate(z.iso)+" · "+ (rec.actor||"") : shortDate(z.iso);
+    body = `<p class="muted">Latest for today (${esc(when)}). Earlier saves stay in history.</p>` +
+      (rec.totals||[]).map(row => `<div class="co-row"><div class="grow"><div class="code">${esc(row.code||"")}</div><div class="muted">${esc(row.name||"")}</div></div><b>${esc(row.onHand || ((row.box||0)+" box"+(row.ea?" + "+row.ea+" ea":"")))}</b></div>`).join("");
+  } else {
+    body = `<p class="muted">One tap stores today’s closing total for each fluid. It carries into tomorrow’s start and is kept as a dated record.</p>`;
+  }
+  return `<div class="card"><h2>Daily close-out</h2>${body}
+    <div class="btnrow">
+      <button type="button" class="btn primary" data-act="closeout-save">Save today’s close-out</button>
+      <a class="btn" href="#closeouts">Close-out history</a>
+    </div>
+  </div>`;
+}
+function renderCloseoutHistory(z){
+  const sid = currentSiteId();
+  const all = (S.closeouts||[]).filter(c => c && c.siteId===sid)
+    .sort((a,b) => String(b.day||"").localeCompare(String(a.day||"")) || String(b.savedAt||"").localeCompare(String(a.savedAt||"")));
+  const days = [...new Set(all.map(c => c.day))];
+  if (route.day){
+    const recs = closeoutsForDay(sid, route.day);
+    if (!recs.length) return `<div class="card empty">No close-out saved for ${esc(shortDate(route.day))}.</div>` + brandFoot();
+    const blocks = recs.map((rec,i) => {
+      const label = i===0 ? "Latest" : "Earlier revision";
+      const when = rec.savedAt ? new Date(rec.savedAt).toLocaleString("en-AU", {timeZone:TZ, hour:"numeric", minute:"2-digit"}) : "";
+      const rows = (rec.totals||[]).map(row => `<div class="co-row"><div class="grow"><div class="code">${esc(row.code||"")}</div><div class="muted">${esc(row.name||"")}</div></div><b>${esc(row.onHand || ((row.box||0)+" box"))}</b></div>`).join("") || `<p class="muted">No fluids on this close-out.</p>`;
+      return `<div class="card"><h2>${esc(label)}</h2><p class="muted">${esc(when)}${rec.actor?" · "+esc(rec.actor):""}. Past days are read-only.</p>${rows}</div>`;
+    }).join("");
+    return `<p class="muted"><a href="#closeouts">All close-out days</a></p>` + blocks + brandFoot();
+  }
+  if (!days.length) return `<div class="card empty">No close-outs saved yet. Use Daily close-out on the Trolleys tab.</div>` + brandFoot();
+  const list = days.map(day => {
+    const recs = closeoutsForDay(sid, day);
+    const n = recs.length;
+    return `<a class="missrow" href="#closeouts/${esc(day)}"><div class="grow"><div class="code">${esc(shortDate(day))}</div><div class="muted">${n} record${n===1?"":"s"} · ${esc((recs[0]&&recs[0].totals||[]).length)} fluids</div></div><span class="arrow">›</span></a>`;
+  }).join("");
+  return `<div class="card"><h2>Close-out history</h2><p class="muted">Pick a date to read that day’s closing totals. Records are never deleted.</p>${list}</div>` + brandFoot();
+}
+function renderSpotCheck(z){
+  const sid = currentSiteId();
+  const draft = (S.spotDraft && S.spotDraft[sid]) || {picked:[], counts:{}};
+  const picked = (draft.picked||[]).map(codeById).filter(Boolean);
+  const rows = picked.map(c => {
+    const u = onHandUnits(sid, c.id);
+    const expect = formatStockQty ? formatStockQty(u) : formatOnHand(u);
+    const counted = (draft.counts||{})[c.id];
+    const n = counted===""||counted==null ? null : Number(counted);
+    const expBox = onHandBoxes(u);
+    let varHtml = `<span class="muted">Enter a count</span>`;
+    if (n!=null && Number.isFinite(n)){
+      const diff = n - expBox;
+      const cls = diff===0 ? "var-ok" : diff<0 ? "var-short" : "var-over";
+      varHtml = `<span class="${cls}">${diff===0?"Match":((diff>0?"+":"")+diff+" box")}</span>`;
+    }
+    return `<div class="co-row"><div class="grow"><div class="code">${esc(displayCodeLabel(c))}</div><div class="muted">On hand now: ${esc(expect)}</div></div>
+      <input class="stock-in" data-act="spot-count" data-cid="${esc(c.id)}" inputmode="numeric" type="number" min="0" step="1" value="${esc(counted==null?"":String(counted))}" placeholder="Count" style="width:88px">
+      ${varHtml}
+      <button class="btn ghost" data-act="spot-drop" data-cid="${esc(c.id)}" aria-label="Remove">✕</button>
+    </div>`;
+  }).join("");
+  const add = `<div class="btnrow"><button type="button" class="btn" data-act="spot-pick">Add a fluid to count</button></div>`;
+  return `<div class="card"><h2>Weekly spot-check</h2>
+    <p class="muted">Pick a few fluids, count them, and see the variance against on hand now. This does not change stock or pars.</p>
+    ${rows||`<p class="muted">Nothing selected yet.</p>`}${add}
+  </div>` + brandFoot();
+}
+function renderOrderCloseoutText(z){
+  const sid = currentSiteId();
+  const lines = [];
+  stockCodes(sid).forEach(c => {
+    const par = parBoxes(c);
+    if (!par) return;
+    const close = closingBoxesFor(sid, c.id);
+    const qty = Math.max(0, par - close);
+    if (!qty) return;
+    lines.push(displayCode(c) + "  " + qty + " box  (par "+par+", close "+close+")");
+  });
+  if (!lines.length) return "No order lines from closing totals (set a par first, then save a close-out or use on hand now).";
+  const site = siteById(sid);
+  return "Fluid Run order — " + (site?site.name+" — ":"") + shortDate(z.iso) + "\n" + lines.join("\n");
+}
+
 function renderTrolleys(z){
   const groups = trolleyItems(z);
-  if (!groups.length) return `<div class="card empty">No pick list yet. Add codes on today’s round first.</div>` + brandFoot();
+  const extras = renderLoadTrolley(z) + renderCloseoutCard(z) + renderMissingBarcodes() +
+    `<div class="btnrow" style="margin:8px 0 12px"><a class="btn" href="#spotcheck">Weekly spot-check</a></div>`;
+  if (!groups.length) return extras + `<div class="card empty">No pick list yet. Add codes on today’s round first.</div>` + brandFoot();
   const ticks = S.trolley[z.iso] || {};
   const body = groups.map(g => {
     const total = g.lines.length;
@@ -4498,7 +4953,7 @@ function renderTrolleys(z){
     </section>`;
   }).join("");
   const undo = S.undoMove ? `<div class="btnrow noprint"><button type="button" class="btn" data-act="undo-move">Undo move to ${esc(shortDate(S.undoMove.toIso))}</button></div>` : "";
-  return undo + body + brandFoot();
+  return extras + undo + body + brandFoot();
 }
 
 
@@ -5057,7 +5512,7 @@ function renderOrder(z){
         <input type="date" data-act="delivery" value="${esc(d.expectedDelivery)}">
         <p class="muted">${esc(prettyDate(d.expectedDelivery))} (Australia/Sydney)</p>
       </div>
-      <p class="muted">On hand now is the same figure as the Stock tab, as full boxes only. If a par is set, the quantity is pre-filled with the shortfall (par minus on hand now) in whole boxes — you can still edit it. Items without a par start empty. WhatsApp includes only lines with a quantity, in boxes. Set par stock on the Stock tab. Lines are sorted by this site’s most-used codes.</p>
+      <p class="muted">If a close-out was saved today, quantities use those closing totals versus pars. Otherwise they use on hand now. If a par is set, the quantity is pre-filled with the shortfall in whole boxes — you can still edit it. Items without a par start empty. Copy the close-out order as text for WhatsApp (it is not sent from here). Set par stock on the Stock tab.</p>
     </div>
     <div class="card"><h2>To order</h2>${lines}</div>
     <div class="btnrow">
@@ -5065,6 +5520,7 @@ function renderOrder(z){
       <button class="btn" data-act="order-refresh">Recalculate</button>
     </div>
     <div class="btnrow">
+      <button class="btn" data-act="order-copy-closeout">Copy close-out order</button>
       <button class="btn" data-act="order-copy">Copy message</button>
       <button class="btn primary" data-act="order-share">Share to WhatsApp</button>
     </div>
@@ -5111,6 +5567,8 @@ function renderMore(z){
     <div class="btnrow" style="margin-top:0">
       <a class="btn primary" href="#report" style="text-decoration:none;display:inline-flex;align-items:center">Weekly delivery report</a>
       <a class="btn" href="#history" style="text-decoration:none;display:inline-flex;align-items:center">History</a>
+      <a class="btn" href="#closeouts" style="text-decoration:none;display:inline-flex;align-items:center">Close-out history</a>
+      <a class="btn" href="#spotcheck" style="text-decoration:none;display:inline-flex;align-items:center">Spot-check</a>
       <a class="btn" href="#setup" style="text-decoration:none;display:inline-flex;align-items:center">Setup</a>
     </div>
     ${route.page==="more" ? `<p class="muted" style="margin:12px 0 0">Open Setup to edit wards, codes and the backup.</p>` : ""}
@@ -5307,9 +5765,12 @@ function renderSetup(){
       ${codeRows}
       <div class="btnrow"><button class="btn" data-act="code-add">Add code</button></div>
     </div>
-    <div class="card"><h2>Sound</h2>
-      <p class="muted">Tick sounds and vibration: ${G.sound?"on":"off"}.</p>
-      <div class="btnrow"><button class="btn" data-act="sound">${G.sound?"Mute sound and vibration":"Turn sound and vibration on"}</button></div>
+    <div class="card"><h2>Tap feedback</h2>
+      <p class="muted">Short haptic on taps and successful scans. A soft tick sound is optional and off unless you turn it on.</p>
+      <div class="btnrow">
+        <button class="btn ${hapticOn()?"primary":""}" data-act="haptic">${hapticOn()?"Haptic on":"Haptic off"}</button>
+        <button class="btn ${G.sound?"primary":""}" data-act="sound">${G.sound?"Tick sound on":"Tick sound off"}</button>
+      </div>
     </div>
     <div class="card"><h2>Backup</h2>
       <p class="muted">Everything lives on this phone. Export a JSON copy now and then.</p>
@@ -5443,6 +5904,24 @@ function tickItem(wid, cid){
   syncCodeStockFromOnHand();
   shareTouchTick(day, wid, cid);
   save(); renderStay(); shareKick();
+  maybeWardAllTicked(wid, day);
+}
+function maybeWardAllTicked(wid, day){
+  const r = S.rounds[day];
+  const e = r && r.wards && r.wards[wid];
+  const lines = (e && e.lines) || [];
+  if (!lines.length) return;
+  const ticks = S.trolley[day]||{};
+  if (!lines.every(l => l && l.codeId && ticks[tickKey(day, wid, l.codeId)])) return;
+  if (REDUCED) return;
+  const old = document.querySelector(".ward-pop");
+  if (old) old.remove();
+  const el = document.createElement("div");
+  el.className = "ward-pop";
+  el.textContent = "✓";
+  el.setAttribute("aria-hidden","true");
+  document.body.appendChild(el);
+  setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 800);
 }
 function changeStock(cid, dir){
   const c = codeById(cid); if (!c) return;
@@ -5571,6 +6050,8 @@ document.addEventListener("click", (ev) => {
   if (act==="back"){
     if (route.page==="round-ward") location.hash="round";
     else if (route.page==="history" && route.day) location.hash="history";
+    else if (route.page==="closeouts" && route.day) location.hash="closeouts";
+    else if (route.page==="closeouts" || route.page==="spotcheck") location.hash="trolleys";
     else location.hash="more";
     return;
   }
@@ -5619,7 +6100,59 @@ document.addEventListener("click", (ev) => {
     }
     return;
   }
-  if (act==="sound"){ G.sound = !G.sound; gSave(); render(); if (G.sound){ sfx("done"); buzz(15); } toast(G.sound ? "Sound and vibration on" : "Muted"); return; }
+  if (act==="sound"){ G.sound = !G.sound; gSave(); render(); if (G.sound) sfx("done"); toast(G.sound ? "Tick sound on" : "Tick sound off"); return; }
+  if (act==="haptic"){ G.haptic = !hapticOn(); gSave(); render(); if (hapticOn()) buzz(15); toast(hapticOn() ? "Haptic on" : "Haptic off"); return; }
+  if (act==="closeout-save"){
+    const rec = saveDailyCloseout(currentSiteId());
+    if (rec) render();
+    return;
+  }
+  if (act==="capture-barcode"){
+    const cid = b.dataset.cid;
+    const siteId = b.dataset.site || currentSiteId();
+    openScanner(siteId, (c, raw) => {
+      if (cid && c && c.id!==cid){
+        /* User scanned a box after picking a specific missing item — link that barcode to the picked item. */
+        linkBarcode(raw, cid, true);
+        shareKick();
+        const picked = codeById(cid);
+        toast("Linked to " + displayCode(picked||c));
+      } else {
+        if (raw && c) { linkBarcode(raw, c.id, true); shareKick(); }
+        toast("Linked " + displayCode(c));
+      }
+      renderStay();
+    }, "Scan the box barcode");
+    return;
+  }
+  if (act==="order-copy-closeout"){
+    const text = renderOrderCloseoutText(zonedNow());
+    copyText(text).then(ok => toast(ok ? "Close-out order copied" : "Could not copy"));
+    return;
+  }
+  if (act==="spot-pick"){
+    const sid = currentSiteId();
+    const draft = (S.spotDraft = S.spotDraft || {});
+    if (!draft[sid]) draft[sid] = {picked:[], counts:{}};
+    const have = new Set(draft[sid].picked||[]);
+    promptDlg("Add a fluid to count", [{label:"Code or name", placeholder:"e.g. 0063 or glucose"}], ([q]) => {
+      q = String(q||"").trim().toLowerCase();
+      if (!q) return;
+      const c = stockCodes(sid).find(x => fluidSearchText(x).includes(q) || displayCode(x).toLowerCase()===q);
+      if (!c){ toast("No matching fluid"); return; }
+      if (!have.has(c.id)) draft[sid].picked.push(c.id);
+      save(); render();
+    });
+    return;
+  }
+  if (act==="spot-drop"){
+    const sid = currentSiteId();
+    const draft = (S.spotDraft && S.spotDraft[sid]) || {picked:[], counts:{}};
+    draft.picked = (draft.picked||[]).filter(id => id!==b.dataset.cid);
+    if (draft.counts) delete draft.counts[b.dataset.cid];
+    save(); renderStay();
+    return;
+  }
   if (act==="game-reset"){
     if (!confirm("Reset XP, badges and best times? Your stock data is not touched.")) return;
     localStorage.removeItem(GSTORE); gLoad(); render(); toast("Game stats reset"); return;
@@ -5910,6 +6443,28 @@ document.addEventListener("input", (ev) => {
       row.style.display = !q || (row.dataset.name||"").includes(q) ? "" : "none";
     });
   }
+  if (act==="spot-count"){
+    const sid = currentSiteId();
+    if (!S.spotDraft) S.spotDraft = {};
+    if (!S.spotDraft[sid]) S.spotDraft[sid] = {picked:[], counts:{}};
+    S.spotDraft[sid].counts[t.dataset.cid] = t.value;
+    save();
+    /* Update variance label without a full re-render so the caret stays put. */
+    const row = t.closest(".co-row");
+    if (row){
+      const n = t.value==="" ? null : Number(t.value);
+      const c = codeById(t.dataset.cid);
+      const u = c ? onHandUnits(sid, c.id) : null;
+      const expBox = u ? onHandBoxes(u) : 0;
+      let el = row.querySelector(".var-ok, .var-short, .var-over, .muted:last-child");
+      /* rebuild last status node after the input */
+      const nodes = [...row.querySelectorAll("span, input")];
+    }
+    renderStay();
+    const inp = document.querySelector('input[data-act=spot-count][data-cid="'+t.dataset.cid+'"]');
+    if (inp){ inp.focus(); }
+    return;
+  }
   if (act==="filter-fluid"){
     fluidQuery = t.value;
     const q = t.value.trim().toLowerCase();
@@ -6067,6 +6622,9 @@ if (!location.hash){
   }
 } else render();
 
+if (/[?&]e2e=1(?:&|$)/.test(location.search)){
+  window.__fr = {applyRemoteBarcode, linkBarcode, renderOrderCloseoutText, zonedNow, bLoad, bSave, latestCloseout, saveDailyCloseout, missingBarcodeCodes, render, save, codeById, setCodePar, S, patch(fn){ fn(S, G); save(); }};
+}
 if ("serviceWorker" in navigator && !/e2e=1/.test(location.search)){
   navigator.serviceWorker.register("sw.js").catch(()=>{});
 }
