@@ -239,7 +239,7 @@ body{background:radial-gradient(1200px 400px at 50% -120px,#dbe9ff 0%,rgba(219,2
 .wardhead{display:flex;align-items:center;gap:10px;margin-bottom:10px}
 .wardhead .progress{flex:1;height:10px;margin:0;background:#e2e8f0}
 .wardhead .progress>span{background:var(--grad)}
-.codes{grid-template-columns:repeat(2,minmax(0,1fr))}
+.codes{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
 .codebtn{min-width:0;border-radius:14px;background:#fff;border:1px solid var(--line);box-shadow:0 1px 0 rgba(18,32,42,.04);transition:transform .12s}
 .codebtn:active{transform:scale(.94)}
 .codebtn.hot{box-shadow:inset 0 0 0 2px var(--vio);background:linear-gradient(180deg,#faf5ff,#fff)}
@@ -309,6 +309,10 @@ label.btn{cursor:pointer}
 .stockrow{padding-left:10px;border-radius:8px}
 .stockrow.flash{animation:pulse 1.2s ease}
 .stock-in{width:76px;min-height:44px;border:1px solid var(--line);border-radius:10px;padding:0 8px;font-size:1rem;font-weight:700;text-align:center}
+.stepper .stock-in{width:56px;min-height:44px;border:0;border-radius:0;padding:0 4px}
+.order-oh{font-weight:700}
+.packeq{display:block;font-size:.72rem;font-weight:700;color:var(--muted);margin-top:2px}
+.nopack{display:inline-block;margin-left:4px;padding:1px 6px;border-radius:99px;background:#f1f5f9;color:var(--muted);font-size:.65rem;font-weight:800;letter-spacing:.02em}
 .stock-unused{opacity:.62}
 .stock-unused .code,.stock-unused .muted{color:var(--muted)}
 .oh-neg{color:var(--red);font-weight:800}
@@ -405,6 +409,29 @@ label.btn{cursor:pointer}
   .rpt-head h2{font-size:14pt}
   .phone-note{display:none}
 }
+
+/* v1.4.8 compact fluid lists — tap targets stay ≥40px */
+h3{margin:10px 0 6px}
+.codes{gap:6px}
+.codebtn{min-height:40px;padding:3px 4px;border-radius:10px;font-size:.78rem;line-height:1.15}
+.codebtn .cn{font-size:.58rem}
+.line{padding:4px 0;gap:6px}
+.line .code{font-size:.88rem}
+.line .muted{font-size:.72rem}
+.stepper{border-radius:9px}
+.stepper button{width:40px;height:40px;font-size:1.05rem}
+.stepper .q{min-width:32px;font-size:.88rem}
+.stock-in{width:64px;min-height:40px;font-size:.88rem;border-radius:8px;padding:0 6px}
+.stepper .stock-in{width:48px;min-height:40px;font-size:.88rem}
+.unitbtn{min-width:40px;min-height:40px;border-radius:9px;font-size:.68rem;padding:0 6px}
+.tickrow{padding:4px 8px;min-height:40px;gap:8px;margin-bottom:5px;border-radius:10px}
+.tick{width:22px;height:22px;border-radius:6px}
+.tickwrap{gap:4px;margin-bottom:4px}
+.stockrow{padding:4px 0;gap:6px}
+.oh-row{padding:4px 0;gap:6px}
+.oh-qty{font-size:.88rem}
+.movebtn{min-height:40px;padding:0 10px}
+
 </style>
 </head>
 <body>
@@ -435,7 +462,7 @@ label.btn{cursor:pointer}
 (function(){
 "use strict";
 
-const VERSION = "1.4.7";
+const VERSION = "1.4.8";
 const STORE = "ward-run-v1";
 const TZ = "Australia/Sydney";
 const DOW = {Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6};
@@ -581,11 +608,14 @@ const POW_CATALOG = [
   {code:"AHB1354", name:"3% NaCl 12x1000"}
 ];
 const CH_CODES = ["0062","0063","0064","0087","0163","0164","0253","0304","0953","1023","1064","1243","1253","1306a","1307","1313","1322","1323","1324","1354","2026","2304","2323","2324","2543","2544","2584","3025","6024","6028","6041","6046","6066","7113","7114","7123","7163","7317","7606","7616"];
-const CH_CODE_ONLY = {1323:1};
+const CH_CODE_ONLY = {};
 const CH_OFFICIAL_NAMES = {
   "2584": "Plasma-Lyte 148 replacement + 5% glucose 12x1000",
   "6066": "KCl 20mmol + 0.9% NaCl + 5% glucose 12x1000",
-  "6024": "KCl 20mmol + 5% glucose + 0.45% NaCl 12x1000"
+  "6024": "KCl 20mmol + 5% glucose + 0.45% NaCl 12x1000",
+  "1023": "0.45% NaCl + 2.5% glucose 18x500",
+  "1243": "0.225% NaCl + 3.75% glucose 18x500",
+  "1323": "0.9% NaCl 18x500"
 };
 const STAFF_CHOICES = ["Gerardo", "Prabin", "Guest"];
 const CH_SEED = ["7113","1324","1064","7123","2544","1323","2584","7606","6024","2323","7163","1307"];
@@ -724,12 +754,94 @@ function fmtUnitBag(bag){
   if (bag.ea) bits.push(bag.ea + " ea");
   return bits.join(", ") || "0";
 }
+function emptySpend(){ return {packets:0, known:true, boxesOnly:0, pack:null, mixedPacks:false, packs:[]}; }
+function linePackSize(l){
+  const c = l && l.codeId ? codeById(l.codeId) : null;
+  return packSize(c) || parsePackFromText([l && l.code, l && l.name, l && l.label].filter(Boolean).join(" ")) || null;
+}
+function packetsOfLine(l){
+  const q = Number(l && l.qty) || 0;
+  const u = lineUnit(l);
+  const pack = linePackSize(l);
+  if (u==="ea") return {packets:q, pack, known:true};
+  if (pack) return {packets:q*pack, pack, known:true};
+  return {packets:null, pack:null, known:false, boxes:q};
+}
+function formatPacketsAndBoxes(packets, pack, opts){
+  if (packets==null){
+    const boxes = opts && opts.boxes;
+    if (boxes!=null) return boxes + " box (no pack size)";
+    return "no pack size";
+  }
+  const eaPart = packets + " ea";
+  if (!pack) return eaPart;
+  const box = Math.floor(packets / pack);
+  const rem = packets % pack;
+  const boxPart = rem ? (box + " box + " + rem + " ea") : (box + " box");
+  return eaPart + " · " + boxPart;
+}
+function formatLineSpend(l){
+  const p = packetsOfLine(l);
+  return formatPacketsAndBoxes(p.packets, p.pack, {boxes:p.boxes});
+}
+function spendOfLines(lines){
+  const s = emptySpend();
+  const packSet = new Set();
+  (lines||[]).forEach(l => {
+    const p = packetsOfLine(l);
+    if (p.pack) packSet.add(p.pack);
+    if (!p.known){ s.known = false; s.boxesOnly += (p.boxes||0); }
+    else s.packets += p.packets;
+  });
+  s.mixedPacks = packSet.size>1;
+  s.pack = packSet.size===1 ? [...packSet][0] : null;
+  s.packs = [...packSet];
+  return s;
+}
+function mergeSpend(a, b){
+  a = a || emptySpend();
+  b = b || emptySpend();
+  const packSet = new Set([].concat(a.packs||[], b.packs||[]));
+  if (a.pack) packSet.add(a.pack);
+  if (b.pack) packSet.add(b.pack);
+  return {
+    packets:(a.packets||0)+(b.packets||0),
+    known: a.known!==false && b.known!==false,
+    boxesOnly:(a.boxesOnly||0)+(b.boxesOnly||0),
+    pack: packSet.size===1 ? [...packSet][0] : null,
+    mixedPacks: packSet.size>1,
+    packs:[...packSet]
+  };
+}
+function formatSpend(s){
+  if (!s) return "0 ea · 0 box";
+  if (s.mixedPacks){
+    const bits = [];
+    if (s.packets) bits.push(s.packets + " ea");
+    if (s.boxesOnly) bits.push(s.boxesOnly + " box (no pack size)");
+    return bits.join(" · ") || "0 ea";
+  }
+  if (!s.known && !(s.packets)) return formatPacketsAndBoxes(null, null, {boxes:s.boxesOnly});
+  let out = formatPacketsAndBoxes(s.packets||0, s.pack, {boxes:s.boxesOnly});
+  if (s.boxesOnly) out += " · " + s.boxesOnly + " box (no pack size)";
+  return out;
+}
+function boxPartOfSpend(s){
+  if (!s) return "";
+  if (s.boxesOnly && !s.packets) return s.boxesOnly + " box (no pack size)";
+  if (s.mixedPacks || !s.pack) return s.boxesOnly ? s.boxesOnly + " box (no pack size)" : "";
+  const pack = s.pack, packets = s.packets||0;
+  const box = Math.floor(packets / pack);
+  const rem = packets % pack;
+  return rem ? (box + " box + " + rem + " ea") : (box + " box");
+}
+function packetsNum(s){ return s && s.packets ? s.packets : (s && s.packets===0 ? 0 : ""); }
 function dayHasDeliveries(iso, siteFilter){
   return dayReport(iso, siteFilter).hasAnything;
 }
 function dayReport(iso, siteFilter){
   const r = S.rounds[iso];
-  const out = {iso, wards:[], hasAnything:false, units:{box:0, ea:0}};
+  const out = {iso, wards:[], hasAnything:false, units:{box:0, ea:0}, spend:emptySpend()};
   if (!r) return out;
   const ids = Object.keys(r.wards||{});
   ids.sort((a,b) => {
@@ -753,6 +865,7 @@ function dayReport(iso, siteFilter){
     const site = sid ? siteById(sid) : null;
     out.hasAnything = true;
     out.units = addUnits(out.units, unitsOf(lines));
+    out.spend = mergeSpend(out.spend, spendOfLines(lines));
     out.wards.push({
       id:wid,
       name:(w && w.name) || wid,
@@ -786,11 +899,11 @@ function renderDayBlock(rep, showSite){
       return `<div class="rpt-ward">${esc(w.name)}${tag}</div><div class="rpt-none">Logged, no items</div>`;
     }
     const rows = w.lines.map(l =>
-      `<div class="rpt-line"><span class="item">${esc(l.label)}${movedFromLabel(l)?`<span class="moved">${esc(movedFromLabel(l))}</span>`:""}</span><span class="qty">${esc(String(l.qty))} ${esc(l.unit)}</span></div>`
+      `<div class="rpt-line"><span class="item">${esc(l.label)}${movedFromLabel(l)?`<span class="moved">${esc(movedFromLabel(l))}</span>`:""}</span><span class="qty">${esc(formatLineSpend(l))}</span></div>`
     ).join("");
     return `<div class="rpt-ward">${esc(w.name)}${tag}</div>${rows}`;
   }).join("");
-  return `<div class="rpt-day"><h3>${esc(title)}</h3>${wards}<div class="rpt-subtot"><span>Day total</span><span>${esc(fmtUnitBag(rep.units))}</span></div></div>`;
+  return `<div class="rpt-day"><h3>${esc(title)}</h3>${wards}<div class="rpt-subtot"><span>Day total</span><span>${esc(formatSpend(rep.spend||spendOfLines((rep.wards||[]).flatMap(w=>w.lines||[]))))}</span></div></div>`;
 }
 function weekReports(monday, siteFilter){
   return weekDates(monday, siteFilter).map(iso => dayReport(iso, siteFilter));
@@ -811,7 +924,7 @@ function siteWeekReports(monday, siteId){
   return weekDates(monday, siteId).map(iso => dayReport(iso, siteId));
 }
 function siteWeekBag(days){
-  return (days||[]).reduce((acc, d) => addUnits(acc, d.units), {box:0, ea:0});
+  return (days||[]).reduce((acc, d) => mergeSpend(acc, d.spend), emptySpend());
 }
 function siteHasAnything(days){
   return (days||[]).some(d => d.hasAnything);
@@ -832,54 +945,65 @@ function itemGroups(days){
     (rep.wards||[]).forEach(w => {
       (w.lines||[]).forEach(l => {
         const key = itemKey(l);
-        if (!map.has(key)) map.set(key, {key, codeId:l.codeId, code:l.code||"", name:l.name||"", label:l.label, rows:[], units:{box:0, ea:0}});
+        if (!map.has(key)) map.set(key, {key, codeId:l.codeId, code:l.code||"", name:l.name||"", label:l.label, rows:[], lines:[]});
         const g = map.get(key);
         g.rows.push({iso:rep.iso, wardId:w.id, wardName:w.name, qty:l.qty, unit:l.unit, code:l.code||"", name:l.name||"", label:l.label});
-        const bag = {box:0, ea:0};
-        bag[l.unit] = l.qty;
-        g.units = addUnits(g.units, bag);
+        g.lines.push(l);
       });
     });
   });
-  return [...map.values()].sort((a,b) => String(a.code||a.label).localeCompare(String(b.code||b.label), undefined, {numeric:true}) || String(a.name||"").localeCompare(String(b.name||"")));
+  return [...map.values()].map(g => { g.spend = spendOfLines(g.lines); return g; }).sort((a,b) => String(a.code||a.label).localeCompare(String(b.code||b.label), undefined, {numeric:true}) || String(a.name||"").localeCompare(String(b.name||"")));
 }
 function itemUnitRows(days){
   const map = new Map();
   (days||[]).forEach(rep => {
     (rep.wards||[]).forEach(w => {
       (w.lines||[]).forEach(l => {
-        const key = itemKey(l) + "|" + l.unit;
-        if (!map.has(key)) map.set(key, {code:l.code||"", name:l.name||"", label:l.label, unit:l.unit, byDay:{}, total:0});
+        const key = itemKey(l);
+        if (!map.has(key)) map.set(key, {code:l.code||"", name:l.name||"", label:l.label, codeId:l.codeId, byDay:{}, lines:[]});
         const g = map.get(key);
-        g.byDay[rep.iso] = (g.byDay[rep.iso]||0) + l.qty;
-        g.total += l.qty;
+        g.lines.push(l);
+        const p = packetsOfLine(l);
+        if (!g.byDay[rep.iso]) g.byDay[rep.iso] = {packets:0, known:true, boxes:0};
+        const cell = g.byDay[rep.iso];
+        if (p.known) cell.packets += p.packets;
+        else { cell.known = false; cell.boxes += (p.boxes||0); }
       });
     });
   });
-  return [...map.values()].sort((a,b) => String(a.code||a.label).localeCompare(String(b.code||b.label), undefined, {numeric:true}) || String(a.unit).localeCompare(String(b.unit)));
+  return [...map.values()].map(g => { g.spend = spendOfLines(g.lines); return g; }).sort((a,b) => String(a.code||a.label).localeCompare(String(b.code||b.label), undefined, {numeric:true}));
+}
+function formatGridCell(cell){
+  if (!cell) return "";
+  if (cell.known===false && !(cell.packets)) return cell.boxes ? cell.boxes + " box" : "";
+  return cell.packets ? String(cell.packets) : "";
 }
 function wardGroups(days){
   const map = new Map();
   (days||[]).forEach(rep => {
     (rep.wards||[]).forEach(w => {
-      if (!map.has(w.id)) map.set(w.id, {id:w.id, name:w.name, items:[], nothing:false, emptyChecked:false, units:{box:0, ea:0}});
+      if (!map.has(w.id)) map.set(w.id, {id:w.id, name:w.name, items:[], nothing:false, emptyChecked:false, lines:[]});
       const g = map.get(w.id);
-      const itemMap = new Map(g.items.map(it => [itemKey(it)+"|"+it.unit, it]));
+      const itemMap = new Map(g.items.map(it => [itemKey(it), it]));
       (w.lines||[]).forEach(l => {
-        const key = itemKey(l)+"|"+l.unit;
+        const key = itemKey(l);
         if (!itemMap.has(key)){
-          const it = {codeId:l.codeId, code:l.code||"", name:l.name||"", label:l.label, unit:l.unit, qty:0};
+          const it = {codeId:l.codeId, code:l.code||"", name:l.name||"", label:l.label, lines:[]};
           itemMap.set(key, it);
           g.items.push(it);
         }
-        itemMap.get(key).qty += l.qty;
+        itemMap.get(key).lines.push(l);
+        g.lines.push(l);
       });
-      g.units = addUnits(g.units, unitsOf(w.lines));
       if (w.nothing && !(w.lines||[]).length) g.nothing = true;
       if (w.emptyChecked && !(w.lines||[]).length) g.emptyChecked = true;
     });
   });
-  return [...map.values()];
+  return [...map.values()].map(g => {
+    g.items.forEach(it => { it.spend = spendOfLines(it.lines); });
+    g.spend = spendOfLines(g.lines);
+    return g;
+  });
 }
 function gridIsos(days){
   const isos = (days||[]).map(d => d.iso);
@@ -897,7 +1021,7 @@ function renderLayoutItem(days){
   const groups = itemGroups(days);
   if (!groups.length) return `<div class="rpt-empty" style="padding-left:0">No deliveries this week</div>`;
   return groups.map(g =>
-    `<div class="rpt-line"><span class="item">${esc(g.label)}</span><span class="qty">${esc(fmtUnitBag(g.units))}</span></div>`
+    `<div class="rpt-line"><span class="item">${esc(g.label)}</span><span class="qty">${esc(formatSpend(g.spend))}</span></div>`
   ).join("");
 }
 function renderLayoutGrid(days){
@@ -907,10 +1031,10 @@ function renderLayoutGrid(days){
   const head = isos.map(iso => `<th>${esc(dayShort(iso))}</th>`).join("") + `<th>Total</th>`;
   const body = rows.map(r => {
     const cells = isos.map(iso => {
-      const n = r.byDay[iso]||0;
-      return `<td>${n?esc(String(n)):""}</td>`;
+      const txt = formatGridCell(r.byDay[iso]);
+      return `<td>${txt?esc(txt):""}</td>`;
     }).join("");
-    return `<tr><th scope="row">${esc(r.label)}</th>${cells}<td class="tot">${esc(String(r.total))} ${esc(r.unit)}</td></tr>`;
+    return `<tr><th scope="row">${esc(r.label)}</th>${cells}<td class="tot">${esc(formatSpend(r.spend))}</td></tr>`;
   }).join("");
   return `<div class="rpt-grid-wrap"><table class="rpt-grid"><thead><tr><th>Item</th>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
@@ -921,27 +1045,27 @@ function renderLayoutWard(days){
     let body = "";
     if (g.items.length){
       body = g.items.map(it =>
-        `<div class="rpt-line"><span class="item">${esc(it.label)}</span><span class="qty">${esc(String(it.qty))} ${esc(it.unit)}</span></div>`
+        `<div class="rpt-line"><span class="item">${esc(it.label)}</span><span class="qty">${esc(formatSpend(it.spend))}</span></div>`
       ).join("");
     } else if (g.nothing){
       body = `<div class="rpt-none">Nothing needed</div>`;
     } else if (g.emptyChecked){
       body = `<div class="rpt-none">Logged, no items</div>`;
     }
-    const tot = g.items.length ? `<div class="rpt-subtot"><span>Ward total</span><span>${esc(fmtUnitBag(g.units))}</span></div>` : "";
+    const tot = g.items.length ? `<div class="rpt-subtot"><span>Ward total</span><span>${esc(formatSpend(g.spend))}</span></div>` : "";
     return `<div class="rpt-group"><div class="rpt-ward">${esc(g.name)}</div>${body}${tot}</div>`;
   }).join("");
 }
 function renderSiteSection(site, days, layout){
   const body = layout==="ward" ? renderLayoutWard(days) : layout==="grid" || layout==="day" ? renderLayoutGrid(days) : renderLayoutItem(days);
   const bag = siteWeekBag(days);
-  return `<section class="rpt-site" data-site="${esc(site.id)}"><h3 class="rpt-site-h">${esc(site.name)}</h3>${body}<div class="rpt-subtot"><span>${esc(site.name)} total</span><span>${esc(fmtUnitBag(bag))}</span></div></section>`;
+  return `<section class="rpt-site" data-site="${esc(site.id)}"><h3 class="rpt-site-h">${esc(site.name)}</h3>${body}<div class="rpt-subtot"><span>${esc(site.name)} total</span><span>${esc(formatSpend(bag))}</span></div></section>`;
 }
 function renderWeekBody(monday, layout){
   return reportSiteList().map(site => renderSiteSection(site, siteWeekReports(monday, site.id), layout)).join("");
 }
 function weekGrandBag(monday){
-  return reportSiteList().reduce((acc, site) => addUnits(acc, siteWeekBag(siteWeekReports(monday, site.id))), {box:0, ea:0});
+  return reportSiteList().reduce((acc, site) => mergeSpend(acc, siteWeekBag(siteWeekReports(monday, site.id))), emptySpend());
 }
 function reportPlainText(monday, layout){
   layout = layout || reportLayout || "item";
@@ -958,8 +1082,8 @@ function reportPlainText(monday, layout){
       wardGroups(days).forEach(g => {
         parts.push("  " + g.name);
         if (g.items.length){
-          g.items.forEach(it => parts.push("    " + it.label + "  " + it.qty + " " + it.unit));
-          parts.push("    Ward total: " + fmtUnitBag(g.units));
+          g.items.forEach(it => parts.push("    " + it.label + "  " + formatSpend(it.spend)));
+          parts.push("    Ward total: " + formatSpend(g.spend));
         } else if (g.nothing) parts.push("    Nothing needed");
         else if (g.emptyChecked) parts.push("    Logged, no items");
       });
@@ -968,16 +1092,16 @@ function reportPlainText(monday, layout){
       const rows = itemUnitRows(days);
       parts.push("  Item  " + isos.map(dayShort).join("  ") + "  Total");
       rows.forEach(r => {
-        const cells = isos.map(iso => r.byDay[iso] ? String(r.byDay[iso]) : "-");
-        parts.push("  " + r.label + "  " + cells.join("  ") + "  " + r.total + " " + r.unit);
+        const cells = isos.map(iso => formatGridCell(r.byDay[iso]) || "-");
+        parts.push("  " + r.label + "  " + cells.join("  ") + "  " + formatSpend(r.spend));
       });
     } else {
-      itemGroups(days).forEach(g => parts.push("  " + g.label + "  " + fmtUnitBag(g.units)));
+      itemGroups(days).forEach(g => parts.push("  " + g.label + "  " + formatSpend(g.spend)));
     }
-    parts.push("  " + site.name + " total: " + fmtUnitBag(bag));
+    parts.push("  " + site.name + " total: " + formatSpend(bag));
     parts.push("");
   });
-  parts.push("Week total: " + fmtUnitBag(weekGrandBag(monday)));
+  parts.push("Week total: " + formatSpend(weekGrandBag(monday)));
   return parts.join("\n").trim() + "\n";
 }
 function sheetNameFor(site, used){
@@ -998,41 +1122,41 @@ function weekSheetRows(site, monday){
   const rows = [];
   rows.push(["Delivered fluids – week of " + weekHeading(monday)]);
   rows.push([site.name]);
-  rows.push([site.name + " total", fmtUnitBag(bag)]);
+  rows.push([site.name + " total", formatSpend(bag)]);
   rows.push([]);
   rows.push(["By item"]);
-  rows.push(["Code","Item","Qty","Unit"]);
+  rows.push(["Code","Item","Packets (ea)","Boxes"]);
   const items = itemGroups(days);
   if (!items.length){
     rows.push(["No deliveries this week","","",""]);
   } else {
     items.forEach(g => {
-      if (g.units.box) rows.push([g.code||"", g.name||g.label, g.units.box, "box"]);
-      if (g.units.ea) rows.push([g.code||"", g.name||g.label, g.units.ea, "ea"]);
+      rows.push([g.code||"", g.name||g.label, packetsNum(g.spend), boxPartOfSpend(g.spend)]);
     });
   }
   rows.push([]);
-  rows.push(["Item × day"]);
+  rows.push(["Item × day (packets)"]);
   const isos = gridIsos(days);
-  rows.push(["Code","Item"].concat(isos.map(dayShort)).concat(["Total","Unit"]));
+  rows.push(["Code","Item"].concat(isos.map(dayShort)).concat(["Total (ea)","Boxes"]));
   const gridRows = itemUnitRows(days);
   if (!gridRows.length){
     rows.push(["No deliveries this week"]);
   } else {
     gridRows.forEach(r => {
-      rows.push([r.code||"", r.name||r.label].concat(isos.map(iso => r.byDay[iso]||"")).concat([r.total, r.unit]));
+      rows.push([r.code||"", r.name||r.label].concat(isos.map(iso => formatGridCell(r.byDay[iso]))).concat([packetsNum(r.spend), boxPartOfSpend(r.spend)]));
     });
   }
   rows.push([]);
   rows.push(["By ward"]);
-  rows.push(["Ward","Code","Item","Qty","Unit"]);
+  rows.push(["Ward","Code","Item","Packets (ea)","Boxes"]);
   const wards = wardGroups(days);
   if (!wards.length){
     rows.push(["No deliveries this week","","","",""]);
   } else {
     wards.forEach(g => {
       if (g.items.length){
-        g.items.forEach(it => rows.push([g.name, it.code||"", it.name||it.label, it.qty, it.unit]));
+        g.items.forEach(it => rows.push([g.name, it.code||"", it.name||it.label, packetsNum(it.spend), boxPartOfSpend(it.spend)]));
+        rows.push([g.name, "", "Ward total", packetsNum(g.spend), boxPartOfSpend(g.spend)]);
       } else if (g.nothing){
         rows.push([g.name, "", "Nothing needed", "", ""]);
       } else if (g.emptyChecked){
@@ -1085,10 +1209,12 @@ function powNameFor(shortCode){
 function applyOfficialNames(s){
   (s.codes||[]).forEach(c => {
     if (!c || c.tickOnly) return;
-    const n = officialNameFor(c.code);
-    if (!n) return;
-    c.name = n;
-    if (/kcl/i.test(n)) c.kcl = true;
+    const official = officialNameFor(c.code);
+    const n = official || powNameFor(c.code);
+    const cur = String(c.name||"").trim();
+    if (official) c.name = official;
+    else if (n && (!cur || /^(box|ea)$/i.test(cur))) c.name = n;
+    if (/kcl/i.test(c.name||n||"")) c.kcl = true;
   });
 }
 function isOt2Name(name){
@@ -1102,7 +1228,9 @@ function displayCode(c){
 function displayMeta(c){
   if (!c) return "";
   if (c.tickOnly) return "";
-  return c.name || "";
+  const cur = String(c.name||"").trim();
+  if (cur && !/^(box|ea)$/i.test(cur)) return cur;
+  return officialNameFor(c.code) || powNameFor(c.code) || "";
 }
 function lineUnit(line){ return (line && line.unit==="ea") ? "ea" : "box"; }
 function kclBadge(c){ return (c && c.kcl) ? "<span class=\"chip kcl\">KCl</span>" : ""; }
@@ -1725,7 +1853,7 @@ function renderRemainingTable(siteId){
     return `<tr data-cid="${esc(c.id)}">
       <td><div class="code">${esc(displayCode(c))}</div><div class="muted">${esc(c.name||"")}</div></td>
       <td>${esc(formatOnHand(r.start))}</td>
-      <td>${esc(formatOnHand(r.delivered))}</td>
+      <td>${esc(formatMoved(r.delivered))}</td>
       <td>${esc(formatOnHand(r.onhand))}</td>
     </tr>`;
   }).join("");
@@ -1734,14 +1862,14 @@ function renderRemainingTable(siteId){
     <table class="rem-table">
       <thead><tr><th>Item</th><th>Stocktake</th><th>Delivered today</th><th>On hand now</th></tr></thead>
       <tbody>${tr}</tbody>
-      <tfoot><tr class="tot"><td>Total</td><td>${esc(formatOnHand(tot.start))}</td><td>${esc(formatOnHand(tot.delivered))}</td><td>${esc(formatOnHand(tot.onhand))}</td></tr></tfoot>
+      <tfoot><tr class="tot"><td>Total</td><td>${esc(formatOnHand(tot.start))}</td><td>${esc(formatMoved(tot.delivered))}</td><td>${esc(formatOnHand(tot.onhand))}</td></tr></tfoot>
     </table>
   </div>`;
 }
 function renderStocktakeCard(){
   return `<div class="card stk" id="stock-remaining">
     <h2>Stocktake</h2>
-    <p class="muted">Last stocktake, plus deliveries added since, minus fluids ticked as delivered on the wards today (since that save). The On hand now column matches the On hand section.</p>
+    <p class="muted">Last stocktake, plus deliveries added since, minus fluids ticked as delivered on the wards today (since that save). On hand is full boxes only — loose packets do not count — and matches the On hand section. Further each ticks still come out of an opened box first.</p>
     ${renderRemainingTable(SITE_POW)}
     ${renderRemainingTable(SITE_CH)}
     <div class="btnrow">
@@ -1774,7 +1902,7 @@ function stocktakeRows(){
         c.name||"",
         r.pack || "",
         formatOnHand(r.start),
-        formatOnHand(r.delivered),
+        formatMoved(r.delivered),
         formatOnHand(r.onhand),
         when
       ]);
@@ -2907,6 +3035,7 @@ async function sharePull(){
     (deliveries||[]).forEach(r => { if (applyRemoteDelivery(r)) changed = true; });
     (restored||[]).forEach(r => { if (applyRemoteRestored(r)) changed = true; });
     (pack||[]).forEach(r => { if (applyRemotePack(r)) changed = true; });
+    applyOfficialNames(S);
     if (changed) syncCodeStockFromOnHand();
   } finally {
     shareApplying = false;
@@ -3092,6 +3221,56 @@ function codesForWard(wardId, pop){
   const wardRank = rankedIds(pop.byWard[wardId]||{}, rankedIds(pop.bySite[sid]||pop.overall, codeOrder(sid)));
   return wardRank.map(id => codeById(id)).filter(c => c && c.siteId===sid);
 }
+function wardHitBag(wardId, excludeIso){
+  const bag = {};
+  function hit(id, day){
+    if (!id || !day) return;
+    if (!bag[id]) bag[id] = {hits:0, last:"", days:{}};
+    if (bag[id].days[day]) return;
+    bag[id].days[day] = 1;
+    bag[id].hits += 1;
+    if (day > bag[id].last) bag[id].last = day;
+  }
+  Object.values(S.rounds||{}).forEach(round => {
+    const day = round.date;
+    if (!day || day===excludeIso) return;
+    const entry = (round.wards||{})[wardId];
+    const ticks = (S.trolley||{})[day] || {};
+    const tickPrefix = day+"|"+wardId+"|";
+    const hasTickData = Object.keys(ticks).some(k => k.indexOf(tickPrefix)===0);
+    ((entry && entry.lines)||[]).forEach(l => {
+      if (!l || !l.codeId) return;
+      if (hasTickData){
+        if (ticks[tickKey(day, wardId, l.codeId)]) hit(l.codeId, day);
+      } else {
+        hit(l.codeId, day);
+      }
+    });
+    Object.keys(ticks).forEach(k => {
+      if (!ticks[k] || k.indexOf(tickPrefix)!==0) return;
+      hit(k.slice(tickPrefix.length), day);
+    });
+  });
+  return bag;
+}
+function codesForWardSections(wardId){
+  const w = wardById(wardId);
+  const sid = w ? w.siteId : currentSiteId();
+  const bag = wardHitBag(wardId, zonedNow().iso);
+  const popularIds = Object.keys(bag).filter(id => (bag[id].hits||0)>0 && codeById(id) && codeById(id).siteId===sid);
+  popularIds.sort((a,b) => (bag[b].hits||0)-(bag[a].hits||0) || String(bag[b].last||"").localeCompare(String(bag[a].last||"")) || a.localeCompare(b));
+  const seen = new Set(popularIds);
+  const popular = popularIds.map(codeById).filter(Boolean);
+  const rest = [];
+  codeOrder(sid).forEach(id => {
+    const c = codeById(id);
+    if (c && c.siteId===sid && !seen.has(c.id)){ seen.add(c.id); rest.push(c); }
+  });
+  siteCodes(sid).forEach(c => {
+    if (c && !seen.has(c.id)){ seen.add(c.id); rest.push(c); }
+  });
+  return {popular, rest};
+}
 
 function lastDeliveryDateFor(today, siteId){
   let last = null;
@@ -3128,23 +3307,46 @@ function defaultDelivery(iso, urgent){
   }
   return addDays(iso, 1);
 }
-function suggestOrder(siteId){
-  const today = zonedNow().iso;
-  const last = lastDeliveryDateFor(today, siteId);
-  const used = usageSince(last, siteId);
+function orderQtyValue(line){
+  if (!line || line.qty==="" || line.qty==null) return "";
+  const n = Number(line.qty);
+  return Number.isFinite(n) && n>=0 ? n : "";
+}
+function orderHasQty(line){
+  const n = Number(line && line.qty);
+  return Number.isFinite(n) && n>0;
+}
+function formatOrderLineText(line, c){
+  if (!c || !orderHasQty(line)) return "";
+  const label = (c.tickOnly || !c.code) ? (c.name||"") : (c.code + (c.name?" "+c.name:""));
+  return label + " x " + Number(line.qty) + " box";
+}
+function orderCatalogLines(siteId, prev){
   const pop = popularity();
   const sitePop = pop.bySite[siteId] || pop.overall;
+  const rank = rankedIds(sitePop, codeOrder(siteId));
+  const seen = new Set();
   const lines = [];
-  siteCodes(siteId).forEach(c => {
-    const usage = used[c.id]||0;
-    const low = Math.max(0, (Number(c.par)||0) - (Number(c.stock)||0));
-    const qty = usage + low;
-    if (qty > 0) lines.push({codeId:c.id, qty, usage, low, unit:"box"});
-  });
-  const order = rankedIds(sitePop, codeOrder(siteId));
-  const idx = Object.fromEntries(order.map((id,i)=>[id,i]));
-  lines.sort((a,b) => (idx[a.codeId]??999) - (idx[b.codeId]??999));
-  return {last, lines};
+  function add(c){
+    if (!c || c.tickOnly || seen.has(c.id)) return;
+    seen.add(c.id);
+    const p = prev && prev[c.id];
+    lines.push({
+      codeId:c.id,
+      qty: p && p.qty!=null && p.qty!=="" ? p.qty : "",
+      unit: "box"
+    });
+  }
+  rank.forEach(id => add(codeById(id)));
+  stockCodes(siteId).forEach(add);
+  if (prev){
+    Object.keys(prev).forEach(id => add(codeById(id)));
+  }
+  return lines;
+}
+function suggestOrder(siteId){
+  /* kept name: builds the To order list, most-used first, with empty qtys */
+  return {lines: orderCatalogLines(siteId, null)};
 }
 
 function isOrderDay(z){
@@ -3425,10 +3627,8 @@ function renderRoundWard(z){
   if (!w) return `<div class="card empty">That ward was not found.</div>`;
   const r = todayRound();
   const e = wardEntry(r, w.id);
-  const pop = popularity();
-  const codes = codesForWard(w.id, pop);
   const used = new Set((e.lines||[]).map(l => l.codeId));
-  const topIds = new Set(Object.keys(pop.byWard[w.id]||{}));
+  const sections = codesForWardSections(w.id);
   const lineHtml = (e.lines||[]).map(l => {
     const c = codeById(l.codeId);
     if (!c) return "";
@@ -3452,13 +3652,18 @@ function renderRoundWard(z){
       <button class="btn ghost" data-act="remove-line" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}" aria-label="Remove">✕</button>
     </div>`;
   }).join("") || `<div class="muted">Tap a code to add one box. Quantity is optional. Tap box/ea beside the count for single packets.</div>`;
-  const codeBtns = codes.map((c,i) => {
-    const hot = i<3 && (topIds.has(c.id) || (c.seed||0)>0);
-    const sub = c.tickOnly ? "" : (c.name?`<span class="cn">${esc(c.name)}</span>`:"") + kclMark(c) + (c.note?`<span class="cn shelfnote">${esc(c.note)}</span>`:"");
-    return `<button type="button" class="codebtn${used.has(c.id)?" on":""}${hot?" hot":""}${c.kcl?" kcl":""}" data-act="add-code" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}">
-      ${esc(displayCode(c))}${sub}
-    </button>`;
-  }).join("");
+  function codeBtns(list){
+    return list.map(c => {
+      const sub = c.tickOnly ? "" : (c.name?`<span class="cn">${esc(c.name)}</span>`:"") + kclMark(c) + (c.note?`<span class="cn shelfnote">${esc(c.note)}</span>`:"");
+      return `<button type="button" class="codebtn${used.has(c.id)?" on":""}${c.kcl?" kcl":""}" data-act="add-code" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}">
+        ${esc(displayCode(c))}${sub}
+      </button>`;
+    }).join("");
+  }
+  const popularBlock = sections.popular.length
+    ? `<h3>Popular</h3><div class="codes">${codeBtns(sections.popular)}</div>`
+    : "";
+  const restBlock = `<h3>${sections.popular.length?"All other fluids":"Codes"}</h3><div class="codes">${codeBtns(sections.rest)}</div>`;
   const st = e.status;
   const sp = siteProgress(w.siteId);
   const pct = sp.total ? Math.round(sp.done/sp.total*100) : 0;
@@ -3476,8 +3681,8 @@ function renderRoundWard(z){
     ${renderUsualNeeds(w.id, z.iso, true)}
     <div class="card" style="margin-top:12px"><h2>This ward</h2>${lineHtml}</div>
     <button type="button" class="scanbtn" data-act="scan-ward" data-wid="${esc(w.id)}"><span aria-hidden="true">📷</span>Scan barcode</button>
-    <h3>Codes — most used first</h3>
-    <div class="codes">${codeBtns}</div>
+    ${popularBlock}
+    ${restBlock}
     <div class="btnrow">
       <button class="btn block" data-act="other-code" data-wid="${esc(w.id)}">Other code…</button>
     </div>
@@ -3760,19 +3965,19 @@ function normalizeUnits(u, pack){
   }
   return bag;
 }
+function onHandBoxes(u){
+  if (u && u.pack && u.total!=null) return Math.floor(u.total / u.pack);
+  return (u && u.box) || 0;
+}
 function formatOnHand(u){
+  return onHandBoxes(u) + " box";
+}
+function formatMoved(u){
   const box = (u && u.box)||0, ea = (u && u.ea)||0;
-  if (u && u.pack){
-    if (!box && !ea) return "0 box";
-    if (!ea) return box + " box";
-    if (!box) return ea + " ea";
-    if (box<0 && ea<0) return box + " box − " + Math.abs(ea) + " ea";
-    return box + " box + " + ea + " ea";
-  }
-  const bits = [];
-  if (box || !ea) bits.push(box + " box");
-  if (ea) bits.push(ea + " ea");
-  return bits.join(", ");
+  if (!box && !ea) return "0";
+  if (!ea) return box + " box";
+  if (!box) return ea + " ea";
+  return box + " box, " + ea + " ea";
 }
 function onHandIsZero(u){ return ((u&&u.box)||0)===0 && ((u&&u.ea)||0)===0; }
 function onHandIsNeg(u){
@@ -3892,7 +4097,7 @@ function syncCodeStockFromOnHand(){
     if (!S.stocktake || !S.stocktake[siteId]) return;
     stockCodes(siteId).forEach(c => {
       const u = onHandUnits(siteId, c.id);
-      c.stock = u[stockUnit(c.unit)]||0;
+      c.stock = onHandBoxes(u);
     });
   });
 }
@@ -4020,15 +4225,17 @@ function renderOnHandSite(siteId){
     const known = (st.baseline && st.baseline[c.id]) || !onHandIsZero(u) || restored[c.id]
       || (S.stockDeliveries||[]).some(d => d.siteId===siteId && d.codeId===c.id);
     if (!known) return;
-    const nm = (displayCode(c)+" "+(c.name||"")+" "+(c.note||"")).toLowerCase();
+    const nm = (displayCode(c)+" "+(displayMeta(c)||"")+" "+(c.note||"")).toLowerCase();
     if (q && !nm.includes(q)) return;
     const zero = onHandIsZero(u);
     const neg = onHandIsNeg(u);
+    const low = onHandBoxes(u) <= 5;
     const hide = zero && !neg && !restored[c.id];
-    const row = `<div class="oh-row ${hide|| (zero&&!neg)?"stock-unused":""} ${neg?"v-short":""}" data-cid="${esc(c.id)}" data-name="${esc(nm)}">
+    const meta = displayMeta(c);
+    const row = `<div class="oh-row ${hide|| (zero&&!neg)?"stock-unused":""}" data-cid="${esc(c.id)}" data-name="${esc(nm)}">
       <div class="grow"><div class="code">${esc(displayCode(c))} ${kclBadge(c)}</div>
-        <div class="muted">${esc(displayMeta(c)||"box")}${c.note?" · "+esc(c.note):""}</div></div>
-      <div class="oh-qty ${neg?"oh-neg":""}">${esc(formatOnHand(u))}${neg?" below 0":""}</div>
+        <div class="muted">${meta?esc(meta):""}${c.note?" · "+esc(c.note):""}</div></div>
+      <div class="oh-qty ${low?"oh-neg":""}">${esc(formatOnHand(u))}</div>
       ${hide?`<button type="button" class="btn ghost" data-act="stock-restore" data-site="${esc(siteId)}" data-cid="${esc(c.id)}">Bring back</button>`:""}
     </div>`;
     if (hide) unused.push(row);
@@ -4057,12 +4264,13 @@ function renderStock(){
   const dd = deliveryDraft(siteId);
   const codes = stockCodes(siteId);
   const formRows = codes.map(c => {
-    const nm = (displayCode(c)+" "+(c.name||"")+" "+(c.note||"")).toLowerCase();
+    const meta = displayMeta(c);
+    const nm = (displayCode(c)+" "+(meta||"")+" "+(c.note||"")).toLowerCase();
     const unit = stockUnit(c.unit);
     const val = stockDraftValue(siteId, c.id);
     return `<div class="stockrow" data-cid="${esc(c.id)}" data-name="${esc(nm)}"${q && !nm.includes(q) ? ' style="display:none"' : ''}>
       <div class="grow"><div class="code">${esc(displayCode(c))} ${kclBadge(c)}</div>
-        <div class="muted">${esc(displayMeta(c)||unit)}${c.note?" · "+esc(c.note):""} · ${esc(unit)}</div></div>
+        <div class="muted">${meta?esc(meta):""}${c.note?" · "+esc(c.note):""}</div></div>
       <input class="stock-in" data-act="stock-count" data-cid="${esc(c.id)}" data-site="${esc(siteId)}" inputmode="numeric" type="number" min="0" step="1" value="${esc(val)}" placeholder="0" aria-label="Count for ${esc(displayCode(c))}">
     </div>`;
   }).join("");
@@ -4101,42 +4309,51 @@ function renderStock(){
 
 function ensureDraft(z){
   const siteId = currentSiteId();
-  if (draftOrder && draftOrder.date===z.iso && draftOrder.siteId===siteId) return draftOrder;
-  const sug = suggestOrder(siteId);
+  if (draftOrder && draftOrder.date===z.iso && draftOrder.siteId===siteId){
+    if (!draftOrder.manualQty){
+      (draftOrder.lines||[]).forEach(l => { l.qty = ""; });
+      draftOrder.manualQty = 1;
+      const prev = {};
+      (draftOrder.lines||[]).forEach(l => { prev[l.codeId] = {qty:l.qty, unit:"box"}; });
+      draftOrder.lines = orderCatalogLines(siteId, prev);
+    } else {
+      (draftOrder.lines||[]).forEach(l => { l.unit = "box"; });
+    }
+    return draftOrder;
+  }
   draftOrder = {
     date: z.iso,
     siteId,
     urgent: !(isOrderDay(z)),
     expectedDelivery: defaultDelivery(z.iso, !(isOrderDay(z))),
-    lines: sug.lines.map(l => ({codeId:l.codeId, qty:l.qty, usage:l.usage, low:l.low, unit:l.unit||"box"}))
+    manualQty: 1,
+    lines: orderCatalogLines(siteId, null)
   };
   return draftOrder;
 }
 
 function renderOrder(z){
   const d = ensureDraft(z);
-  const sugMeta = suggestOrder(d.siteId);
   const lines = d.lines.map(l => {
     const c = codeById(l.codeId);
     if (!c) return "";
-    const hint = [];
-    if (l.usage) hint.push("used "+l.usage+" since last delivery");
-    if (l.low) hint.push("low by "+l.low);
-    const u = lineUnit(l);
-    return `<div class="line">
-      <div class="grow"><div class="code">${esc(displayCode(c))} ${kclBadge(c)}</div><div class="muted">${esc((c.name||"")+(hint.length?" · "+hint.join(", "):""))}</div></div>
-      <div class="unitpair">
-        <div class="stepper">
-          <button type="button" data-act="order-qty" data-dir="-1" data-cid="${esc(c.id)}">−</button>
-          <div class="q">${esc(l.qty)}</div>
-          <button type="button" data-act="order-qty" data-dir="1" data-cid="${esc(c.id)}">+</button>
-        </div>
-        ${unitToggle("order-unit", {cid:c.id}, u)}
+    const pack = packSize(c);
+    const oh = formatOnHand(onHandUnits(d.siteId, c.id));
+    const nopack = !pack ? `<span class="nopack">No pack size</span>` : "";
+    const qtyVal = l.qty==="" || l.qty==null ? "" : l.qty;
+    return `<div class="line" data-cid="${esc(c.id)}">
+      <div class="grow"><div class="code">${esc(displayCode(c))} ${kclBadge(c)}${nopack}</div>
+        <div class="muted">${esc(c.name||"")}</div>
+        <div class="muted">On hand now: <span class="order-oh">${esc(oh)}</span></div>
+      </div>
+      <div class="stepper">
+        <button type="button" data-act="order-qty" data-dir="-1" data-cid="${esc(c.id)}" aria-label="Decrease">−</button>
+        <input class="stock-in" data-act="order-qty-in" data-cid="${esc(c.id)}" inputmode="numeric" type="number" min="0" step="1" value="${esc(qtyVal)}" placeholder="0" aria-label="Order boxes for ${esc(displayCode(c))}">
+        <button type="button" data-act="order-qty" data-dir="1" data-cid="${esc(c.id)}" aria-label="Increase">+</button>
       </div>
       <button class="btn ghost" data-act="order-remove" data-cid="${esc(c.id)}" aria-label="Remove">✕</button>
     </div>`;
-  }).join("") || `<div class="muted">No suggested lines. Add a code, or log today’s usage first.</div>`;
-  const since = sugMeta.last ? "Usage counted since last delivery ("+shortDate(sugMeta.last)+")." : "No delivery logged yet — suggestions use all recorded usage plus low stock.";
+  }).join("") || `<div class="muted">No codes on this site yet. Add a code to start a list.</div>`;
   const sent = orderSentOn(z.iso);
   return `
     <div class="card">
@@ -4145,7 +4362,7 @@ function renderOrder(z){
         <input type="date" data-act="delivery" value="${esc(d.expectedDelivery)}">
         <p class="muted">${esc(prettyDate(d.expectedDelivery))} (Australia/Sydney)</p>
       </div>
-      <p class="muted">${esc(since)} Lines are sorted by this site’s most-used codes. WhatsApp shows box or ea.</p>
+      <p class="muted">On hand now is the same figure as the Stock tab (last stocktake, plus deliveries, minus today’s ticked ward deliveries), as full boxes only. Order in whole boxes — amounts start empty, and WhatsApp includes only lines with a quantity, in boxes. Lines are sorted by this site’s most-used codes.</p>
     </div>
     <div class="card"><h2>To order</h2>${lines}</div>
     <div class="btnrow">
@@ -4178,12 +4395,7 @@ function orderMessage(d){
   const name = (S.settings.partnerName||"").trim();
   const title = d.urgent ? "URGENT stock order" : "Stock order";
   const site = siteById(d.siteId);
-  const lines = d.lines.map(l => {
-    const c = codeById(l.codeId);
-    if (!c) return "";
-    const label = (c.tickOnly || !c.code) ? (c.name||"") : (c.code + (c.name?" "+c.name:""));
-    return label + " x " + l.qty + " " + lineUnit(l);
-  }).filter(Boolean);
+  const lines = (d.lines||[]).map(l => formatOrderLineText(l, codeById(l.codeId))).filter(Boolean);
   const parts = [
     title,
     prettyDate(d.date),
@@ -4269,13 +4481,13 @@ function renderHistory(z, pop){
   const weekRows = mondays.map(m => {
     const bag = weekGrandBag(m);
     const tag = mondayOf(z.iso)===m ? " · this week" : "";
-    return `<a class="dayrow" href="#report/${esc(m)}"><span class="grow"><div>Week of ${esc(prettyDate(m))}${esc(tag)}</div><div class="muted">${esc(shortDate(m))} – ${esc(shortDate(addDays(m,4)))} · ${esc(fmtUnitBag(bag))}</div></span><span aria-hidden="true">›</span></a>`;
+    return `<a class="dayrow" href="#report/${esc(m)}"><span class="grow"><div>Week of ${esc(prettyDate(m))}${esc(tag)}</div><div class="muted">${esc(shortDate(m))} – ${esc(shortDate(addDays(m,4)))} · ${esc(formatSpend(bag))}</div></span><span aria-hidden="true">›</span></a>`;
   }).join("") || `<p class="muted">No weeks recorded yet. Finish a ward on the Round tab and it is saved here and shared automatically.</p>`;
   const dayRows = days.map(day => {
     const rep = dayReport(day, "all");
     const nW = rep.wards.length;
     const tag = day===z.iso ? " · today" : "";
-    return `<a class="dayrow" href="#history/${esc(day)}"><span class="grow"><div>${esc(prettyDate(day))}${esc(tag)}</div><div class="muted">${nW} ward${nW===1?"":"s"} · ${esc(fmtUnitBag(rep.units))}</div></span><span aria-hidden="true">›</span></a>`;
+    return `<a class="dayrow" href="#history/${esc(day)}"><span class="grow"><div>${esc(prettyDate(day))}${esc(tag)}</div><div class="muted">${nW} ward${nW===1?"":"s"} · ${esc(formatSpend(rep.spend))}</div></span><span aria-hidden="true">›</span></a>`;
   }).join("") || `<p class="muted">No deliveries recorded yet. Finish a ward on the Round tab and it is saved here automatically.</p>`;
 
   return `
@@ -4311,7 +4523,7 @@ function renderReport(z){
       <button type="button" class="btn" data-act="week-next" aria-label="Next week">›</button>
     </div>
     <div class="filt noprint">${layoutBtns}</div>
-    <p class="phone-note noprint">Excel is the week file: POW and Children's on separate sheets, with By item, Item × day and By ward. Print and Copy follow the layout on screen. The week uses the shared records once they have synced, plus anything saved on this phone.</p>
+    <p class="phone-note noprint">Excel is the week file: POW and Children's on separate sheets, with By item, Item × day and By ward. Each item shows packets (ea) and the box equivalent side by side — Baxter charges per packet. Item × day figures are packets. Print and Copy follow the layout on screen. The week uses the shared records once they have synced, plus anything saved on this phone.</p>
     <div class="btnrow noprint" style="margin-top:0">
       <button type="button" class="btn primary" data-act="export-week-xlsx">⬇ Excel</button>
       <button type="button" class="btn" data-act="print-report">Print</button>
@@ -4323,7 +4535,7 @@ function renderReport(z){
         <div class="muted">${esc(reportLayoutLabel(layout))}</div>
       </div>
       ${body}
-      <div class="rpt-total"><span>Week total</span><span>${esc(fmtUnitBag(weekBag))}</span></div>
+      <div class="rpt-total"><span>Week total</span><span>${esc(formatSpend(weekBag))}</span></div>
     </div>
     ${brandFoot()}
   `;
@@ -4539,18 +4751,13 @@ function changeStock(cid, dir){
 function rebuildDraftKeepEdits(z, siteId){
   const prev = {};
   if (draftOrder) draftOrder.lines.forEach(l => { prev[l.codeId]={qty:l.qty, unit:lineUnit(l)}; });
-  const sug = suggestOrder(siteId);
   draftOrder = {
     date: z.iso,
     siteId,
     urgent: draftOrder ? draftOrder.urgent : !isOrderDay(z),
     expectedDelivery: draftOrder && draftOrder.siteId===siteId ? draftOrder.expectedDelivery : defaultDelivery(z.iso, draftOrder?draftOrder.urgent:!isOrderDay(z)),
-    lines: sug.lines.map(l => ({
-      codeId:l.codeId,
-      qty: prev[l.codeId]!=null?prev[l.codeId].qty:l.qty,
-      usage:l.usage, low:l.low,
-      unit: prev[l.codeId]!=null?prev[l.codeId].unit:(l.unit||"box")
-    }))
+    manualQty: 1,
+    lines: orderCatalogLines(siteId, prev)
   };
 }
 
@@ -4775,8 +4982,9 @@ document.addEventListener("click", (ev) => {
     const d = ensureDraft(z);
     const line = d.lines.find(l => l.codeId===b.dataset.cid);
     if (!line) return;
-    line.qty = Math.max(0, (Number(line.qty)||0) + Number(b.dataset.dir));
-    if (line.qty===0) d.lines = d.lines.filter(l => l.codeId!==b.dataset.cid);
+    const next = Math.max(0, (Number(line.qty)||0) + Number(b.dataset.dir));
+    line.qty = next===0 ? "" : next;
+    line.unit = "box";
     save(); renderStay();
   }
   if (act==="order-unit"){
@@ -4802,7 +5010,7 @@ document.addEventListener("click", (ev) => {
       if (!c){ c = newCode(code, "", sid); S.codes.push(c); save(); }
       const d = ensureDraft(z);
       const line = d.lines.find(l => l.codeId===c.id);
-      if (line) line.qty = q; else d.lines.push({codeId:c.id, qty:q, usage:0, low:0, unit:"box"});
+      if (line){ line.qty = q; line.unit = "box"; } else d.lines.push({codeId:c.id, qty:q||"", unit:"box"});
       save(); renderStay();
     });
   }
@@ -4810,7 +5018,7 @@ document.addEventListener("click", (ev) => {
     const d = ensureDraft(z);
     rebuildDraftKeepEdits(z, d.siteId);
     save(); renderStay();
-    toast("Suggestions recalculated");
+    toast("On hand updated");
   }
   if (act==="order-copy"){
     const text = orderMessage(ensureDraft(z));
@@ -4827,7 +5035,8 @@ document.addEventListener("click", (ev) => {
   }
   if (act==="order-send"){
     const d = ensureDraft(z);
-    if (!d.lines.length){ toast("Add at least one line"); return; }
+    const sentLines = (d.lines||[]).filter(orderHasQty);
+    if (!sentLines.length){ toast("Type a quantity on at least one line"); return; }
     S.orders.push({
       id: uid("o-"),
       date: d.date,
@@ -4836,8 +5045,8 @@ document.addEventListener("click", (ev) => {
       urgent: !!d.urgent,
       expectedDelivery: d.expectedDelivery,
       siteId: d.siteId,
-      lines: d.lines.map(l => ({codeId:l.codeId, qty:l.qty, unit:lineUnit(l)})),
-      message: orderMessage(d)
+      lines: sentLines.map(l => ({codeId:l.codeId, qty:l.qty, unit:"box"})),
+      message: orderMessage(Object.assign({}, d, {lines:sentLines}))
     });
     save();
     render();
@@ -4961,6 +5170,14 @@ document.addEventListener("input", (ev) => {
   }
   if (act==="stock-count"){
     setStockDraft(t.dataset.site || currentSiteId(), t.dataset.cid, t.value);
+    save();
+  }
+  if (act==="order-qty-in"){
+    const d = ensureDraft(zonedNow());
+    const line = d.lines.find(l => l.codeId===t.dataset.cid);
+    if (!line) return;
+    line.qty = t.value;
+    line.unit = "box";
     save();
   }
   if (act==="stock-delivery-qty"){
