@@ -508,6 +508,10 @@ h3{margin:10px 0 6px}
 .rpt-flag.no{color:var(--muted)}
 .rpt-time{font-weight:650;color:var(--muted);font-size:.7rem;margin-left:8px;white-space:nowrap}
 .hist-export h2{margin-bottom:4px}
+.weekly-copy h2{margin-bottom:4px}
+.weekly-copy-pre{white-space:pre-wrap;word-break:break-word;font:inherit;font-size:.92rem;line-height:1.45;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:12px;margin:8px 0 0;max-height:60vh;overflow:auto}
+.weekly-copy .totrow{display:flex;align-items:center;gap:8px;margin:8px 0 0}
+.weekly-copy .totrow input{width:20px;height:20px}
 @media print{
   .rpt-flag,.rpt-time{color:#000}
 }
@@ -546,7 +550,7 @@ h3{margin:10px 0 6px}
 (function(){
 "use strict";
 
-const VERSION = "1.7.4";
+const VERSION = "1.7.5";
 const STORE = "ward-run-v1";
 const TZ = "Australia/Sydney";
 const DOW = {Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6};
@@ -711,6 +715,9 @@ let route = {page:"round", wardId:null, day:null, week:null};
 let reportLayout = "item";
 let histRange = "day";
 let histAnchor = null;
+let weeklyCopyMonday = null;
+let weeklyCopyFilter = "";
+let weeklyCopyTotals = false;
 let toastTimer = 0;
 let draftOrder = null;
 let stockQuery = "";
@@ -1374,6 +1381,184 @@ function lineDeliveredLabel(iso, wid, cid, entry){
 }
 function historyRangeSpend(z){
   return historyRangeDays(z).reduce((acc, iso) => mergeSpend(acc, dayReport(iso, "all").spend), emptySpend());
+}
+function weeklyCopyMon(z){
+  z = z || zonedNow();
+  return weeklyCopyMonday || mondayOf(z.iso);
+}
+function weeklyCopySiteIds(){
+  const f = weeklyCopyFilter || currentSiteId();
+  if (f==="both") return [SITE_CH, SITE_POW];
+  if (f===SITE_POW) return [SITE_POW];
+  return [SITE_CH];
+}
+function weeklyCopySiteTitle(ids){
+  const names = ids.map(id => {
+    const s = siteById(id);
+    return s ? s.name : id;
+  });
+  if (names.length===1) return names[0];
+  return names.join(" and ");
+}
+function formatDayNumMon(iso){
+  if (!iso) return "";
+  const [y,m,d] = iso.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m-1, d, 12));
+  const day = new Intl.DateTimeFormat("en-AU",{timeZone:"UTC", day:"numeric"}).format(dt);
+  const mon = new Intl.DateTimeFormat("en-AU",{timeZone:"UTC", month:"short"}).format(dt);
+  return day + " " + mon;
+}
+function weeklyCopyRangeLabel(mon){
+  const sun = addDays(mon, 6);
+  const a = formatDayNumMon(mon), b = formatDayNumMon(sun);
+  const y1 = mon.slice(0,4), y2 = sun.slice(0,4);
+  if (y1!==y2) return a + " " + y1 + "–" + b + " " + y2;
+  if (mon.slice(5,7)===sun.slice(5,7)) return String(Number(mon.slice(8))) + "–" + b;
+  return a + "–" + b;
+}
+function weeklyCopyDayLabel(iso){
+  return DAY_LABELS[dowOf(iso)] + " " + formatDayNumMon(iso);
+}
+function weeklyCopyLineKey(l){
+  return l.codeId || ((l.code||"") + "|" + (l.name||""));
+}
+function combineWeeklyLines(lines){
+  const order = [];
+  const bag = {};
+  (lines||[]).forEach(l => {
+    const key = weeklyCopyLineKey(l);
+    if (!bag[key]){
+      bag[key] = {codeId:l.codeId, code:l.code||"", name:l.name||"", box:0, ea:0};
+      order.push(key);
+    }
+    const rec = bag[key];
+    if (!rec.code && l.code) rec.code = l.code;
+    if (l.unit==="ea") rec.ea += Number(l.qty)||0;
+    else rec.box += Number(l.qty)||0;
+  });
+  return order.map(k => bag[k]).filter(r => r.box>0 || r.ea>0);
+}
+function formatWeeklyCodeLine(rec){
+  const c = rec.codeId ? codeById(rec.codeId) : null;
+  const code = rec.code || (c ? displayCode(c) : "") || rec.name || "Item";
+  const bits = [];
+  if (rec.box>0) bits.push(rec.box + " box");
+  if (rec.ea>0) bits.push(rec.ea + " EA");
+  return code + " × " + bits.join(" + ");
+}
+function weeklyCopyDeliveredLines(iso, wid, e){
+  const all = deliveredLines(e);
+  if (!all.length) return [];
+  const ticks = (S.trolley && S.trolley[iso]) || {};
+  if (wardHasTickData(iso, wid)){
+    return all.filter(l => !!ticks[tickKey(iso, wid, l.codeId)]);
+  }
+  if (e && e.status==="checked") return all;
+  return [];
+}
+function weeklyCopyText(monday, siteIds, withTotals){
+  monday = monday || weeklyCopyMon();
+  siteIds = siteIds || weeklyCopySiteIds();
+  if (withTotals==null) withTotals = !!weeklyCopyTotals;
+  const header = "Fluid Run – " + weeklyCopySiteTitle(siteIds) + " – week " + weeklyCopyRangeLabel(monday);
+  const days = [];
+  const totals = {};
+  const totalOrder = [];
+  for (let i=0;i<7;i++){
+    const iso = addDays(monday, i);
+    const r = S.rounds[iso];
+    if (!r) continue;
+    const ids = Object.keys(r.wards||{});
+    ids.sort((a,b) => {
+      const wa = wardById(a), wb = wardById(b);
+      const sa = entrySiteId(a, r.wards[a])||"";
+      const sb = entrySiteId(b, r.wards[b])||"";
+      const ia = siteIds.indexOf(sa), ib = siteIds.indexOf(sb);
+      if (ia!==ib) return (ia<0?99:ia) - (ib<0?99:ib);
+      return ((wa&&wa.order)!=null?wa.order:99) - ((wb&&wb.order)!=null?wb.order:99) || String((wa&&wa.name)||a).localeCompare(String((wb&&wb.name)||b));
+    });
+    const dayBlocks = [];
+    let lastSite = "";
+    ids.forEach(wid => {
+      const e = r.wards[wid];
+      const wRec = wardById(wid);
+      if (isRetiredWard(wRec) || isRetiredWard({id:wid, name:(wRec&&wRec.name)||""})) return;
+      const sid = entrySiteId(wid, e);
+      if (!siteIds.includes(sid)) return;
+      const lines = combineWeeklyLines(weeklyCopyDeliveredLines(iso, wid, e));
+      if (!lines.length) return;
+      const w = wardById(wid);
+      const name = (w && w.name) || wid;
+      const chunk = [];
+      if (siteIds.length>1 && sid!==lastSite){
+        const site = siteById(sid);
+        if (dayBlocks.length) chunk.push("");
+        chunk.push(site ? site.name : sid);
+        lastSite = sid;
+      }
+      if (dayBlocks.length && !(siteIds.length>1 && sid===lastSite && chunk.length)) {
+        /* blank line between wards */
+      }
+      chunk.push(name);
+      lines.forEach(rec => {
+        chunk.push(formatWeeklyCodeLine(rec));
+        const key = weeklyCopyLineKey(rec);
+        if (!totals[key]){
+          totals[key] = {codeId:rec.codeId, code:rec.code||"", name:rec.name||"", box:0, ea:0};
+          totalOrder.push(key);
+        }
+        totals[key].box += rec.box;
+        totals[key].ea += rec.ea;
+      });
+      dayBlocks.push(chunk.join("\n"));
+    });
+    if (!dayBlocks.length) continue;
+    const parts = [];
+    dayBlocks.forEach((block, idx) => {
+      if (idx) parts.push("");
+      parts.push(block);
+    });
+    days.push("*" + weeklyCopyDayLabel(iso) + "*\n\n" + parts.join("\n"));
+  }
+  if (!days.length){
+    return header + "\n\nNo delivered fluids this week.";
+  }
+  let out = header + "\n\n" + days.join("\n\n");
+  if (withTotals && totalOrder.length){
+    const totLines = totalOrder.map(k => formatWeeklyCodeLine(totals[k]));
+    out += "\n\nWeek total\n" + totLines.join("\n");
+  }
+  return out;
+}
+function renderWeeklyCopy(z){
+  const mon = weeklyCopyMon(z);
+  const ids = weeklyCopySiteIds();
+  const cur = weeklyCopyFilter || currentSiteId();
+  const siteBtns = [
+    [SITE_CH, "Children's"],
+    [SITE_POW, "POW"],
+    ["both", "Both"]
+  ].map(([id, lab]) => {
+    const on = (id==="both" && cur==="both") || (id!=="both" && cur!=="both" && (cur===id || (!weeklyCopyFilter && currentSiteId()===id)));
+    return `<button type="button" data-act="weekly-sites" data-id="${esc(id)}" class="${on?"on":""}">${esc(lab)}</button>`;
+  }).join("");
+  const text = weeklyCopyText(mon, ids, weeklyCopyTotals);
+  return `<div class="card noprint weekly-copy" id="weekly-copy">
+    <h2>Weekly copy</h2>
+    <p class="muted">A short, WhatsApp-ready list of fluids delivered to each ward, for sending a week at a time. It uses the daily round records and prefers items ticked as delivered. Days are included even if no close-out was saved. Close-outs are storeroom counts, not a per-ward list, so they are not used here. No names or notes are included.</p>
+    <div class="weeknav" style="margin-top:4px">
+      <button type="button" class="btn" data-act="weekly-prev" aria-label="Previous week">‹</button>
+      <div class="lab">${esc(weeklyCopyRangeLabel(mon))}</div>
+      <button type="button" class="btn" data-act="weekly-next" aria-label="Next week">›</button>
+    </div>
+    <div class="filt">${siteBtns}</div>
+    <label class="totrow"><input type="checkbox" data-act="weekly-totals" ${weeklyCopyTotals?"checked":""}> Include a weekly total per code</label>
+    <div class="btnrow" style="margin-top:8px">
+      <button type="button" class="btn primary" data-act="weekly-copy">Copy</button>
+      <button type="button" class="btn" data-act="weekly-share">Share</button>
+    </div>
+    <pre class="weekly-copy-pre" id="weekly-copy-text">${esc(text)}</pre>
+  </div>`;
 }
 function renderHistorySheet(z){
   const kind = historyRangeKind();
@@ -5997,6 +6182,7 @@ function renderMore(z){
     <div class="btnrow" style="margin-top:0">
       <a class="btn primary" href="#report" style="text-decoration:none;display:inline-flex;align-items:center">Weekly delivery report</a>
       <a class="btn" href="#history" style="text-decoration:none;display:inline-flex;align-items:center">History</a>
+      <a class="btn" href="#history" style="text-decoration:none;display:inline-flex;align-items:center" data-scroll="weekly-copy">Weekly copy</a>
       <a class="btn" href="#closeouts" style="text-decoration:none;display:inline-flex;align-items:center">Close-out history</a>
       <a class="btn" href="#spotcheck" style="text-decoration:none;display:inline-flex;align-items:center">Spot-check</a>
       <a class="btn" href="#setup" style="text-decoration:none;display:inline-flex;align-items:center">Setup</a>
@@ -6037,7 +6223,7 @@ function renderHistory(z, pop){
 
   const note = `<p class="phone-note noprint">Day and week records are shared, so you and your colleague can view POW and Children's — including past weeks — on this phone. A copy is also kept here for offline use.</p>`;
   const todayNote = (historyRangeKind()==="day" && historyAnchor(z)===z.iso) ? `<p class="phone-note noprint">Today’s list is still editable on the Round tab. This view is read-only.</p>` : "";
-  const exportUi = `${note}${renderHistExport(z)}${todayNote}${renderHistorySheet(z)}`;
+  const exportUi = `${renderWeeklyCopy(z)}${note}${renderHistExport(z)}${todayNote}${renderHistorySheet(z)}`;
 
   if (route.day && historyRangeKind()==="day"){
     return `
@@ -6385,19 +6571,50 @@ function rebuildDraftKeepEdits(z, siteId){
   };
 }
 
-function copyText(text){
-  if (navigator.clipboard && navigator.clipboard.writeText){
-    return navigator.clipboard.writeText(text).then(()=>true).catch(()=>fallbackCopy(text));
-  }
-  return Promise.resolve(fallbackCopy(text));
-}
 function fallbackCopy(text){
   const ta = document.createElement("textarea");
-  ta.value = text; document.body.appendChild(ta); ta.select();
+  ta.value = text==null ? "" : String(text);
+  ta.setAttribute("readonly","");
+  ta.style.position = "fixed";
+  ta.style.top = "0";
+  ta.style.left = "0";
+  ta.style.width = "2em";
+  ta.style.height = "2em";
+  ta.style.padding = "0";
+  ta.style.border = "none";
+  ta.style.outline = "none";
+  ta.style.boxShadow = "none";
+  ta.style.background = "transparent";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try{ ta.setSelectionRange(0, ta.value.length); }catch(e){}
   let ok=false;
   try{ ok = document.execCommand("copy"); }catch(e){}
   ta.remove();
-  return ok;
+  if (ok) return true;
+  const pre = document.getElementById("weekly-copy-text");
+  if (pre && (pre.textContent||"")===String(text||"")){
+    const sel = window.getSelection();
+    const range = document.createRange();
+    try{
+      range.selectNodeContents(pre);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      ok = document.execCommand("copy");
+      sel.removeAllRanges();
+    }catch(e){ ok = false; }
+  }
+  return !!ok;
+}
+function copyText(text){
+  const str = text==null ? "" : String(text);
+  const fallback = () => Promise.resolve(fallbackCopy(str));
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    return navigator.clipboard.writeText(str).then(()=>true).catch(() => fallback());
+  }
+  return fallback();
 }
 function waLink(text){
   const digits = String(S.settings.waNumber||"").replace(/\D+/g,"");
@@ -6524,6 +6741,40 @@ document.addEventListener("click", (ev) => {
   if (act==="print-hist"){ window.print(); return; }
   if (act==="copy-report"){
     copyText(reportPlainText(reportMonday(), reportLayout||"day")).then(ok => toast(ok ? "Copied as text" : "Copy failed — long-press to copy"));
+    return;
+  }
+  if (act==="weekly-prev" || act==="weekly-next"){
+    weeklyCopyMonday = addDays(weeklyCopyMon(), act==="weekly-next" ? 7 : -7);
+    renderStay();
+    return;
+  }
+  if (act==="weekly-sites"){
+    weeklyCopyFilter = b.dataset.id || "";
+    renderStay();
+    return;
+  }
+  if (act==="weekly-totals"){
+    weeklyCopyTotals = !!b.checked;
+    renderStay();
+    return;
+  }
+  if (act==="weekly-copy"){
+    const text = weeklyCopyText();
+    copyText(text).then(ok => toast(ok ? "Copied" : "Copy failed — long-press the list to copy"));
+    return;
+  }
+  if (act==="weekly-share"){
+    const text = weeklyCopyText();
+    if (!text || text.indexOf("No delivered fluids this week.")!==-1){
+      toast("Nothing to share this week");
+      return;
+    }
+    const url = "https://wa.me/?text=" + encodeURIComponent(text);
+    if (navigator.share){
+      navigator.share({text, title:"Fluid Run weekly copy"}).catch(()=>{ window.location.href = url; });
+    } else {
+      window.location.href = url;
+    }
     return;
   }
   if (act==="celebrate-close"){ clearTimeout(celebrateTimer); document.getElementById("celebrate").classList.remove("show"); return; }
@@ -7130,7 +7381,7 @@ if (!location.hash){
 } else render();
 
 if (/[?&]e2e=1(?:&|$)/.test(location.search)){
-  window.__fr = {applyRemoteBarcode, linkBarcode, renderOrderCloseoutText, zonedNow, bLoad, bSave, latestCloseout, saveDailyCloseout, missingBarcodeCodes, render, save, codeById, setCodePar, unusedCodes, usedStockCodes, stockCodes, isFluidUsedAt, getFluidUse, isFirstOrder, isHalfParOrLess, onHandBoxCount, suggestedOrderQty, orderLineReason, parBoxes, S, patch(fn){ fn(S, G); save(); }, clearDraft(){ draftOrder=null; S.draftOrder=null; }};
+  window.__fr = {applyRemoteBarcode, linkBarcode, renderOrderCloseoutText, zonedNow, bLoad, bSave, latestCloseout, saveDailyCloseout, missingBarcodeCodes, render, save, codeById, setCodePar, unusedCodes, usedStockCodes, stockCodes, isFluidUsedAt, getFluidUse, isFirstOrder, isHalfParOrLess, onHandBoxCount, suggestedOrderQty, orderLineReason, parBoxes, weeklyCopyText, weeklyCopyMon, weeklyCopySiteIds, weeklyCopyRangeLabel, S, patch(fn){ fn(S, G); save(); }, clearDraft(){ draftOrder=null; S.draftOrder=null; }, setWeeklyCopy(mon, filter, totals){ if(mon) weeklyCopyMonday=mon; if(filter!=null) weeklyCopyFilter=filter; if(totals!=null) weeklyCopyTotals=!!totals; }};
 }
 if ("serviceWorker" in navigator && !/e2e=1/.test(location.search)){
   navigator.serviceWorker.register("sw.js").catch(()=>{});
