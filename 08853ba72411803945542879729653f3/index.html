@@ -111,6 +111,12 @@ a.btn:visited{color:var(--ink)}
 .allload-btn{width:28px;height:28px;padding:0;border:0;background:transparent;display:grid;place-items:center;flex:none;cursor:pointer}
 .allload-btn .tick{width:22px;height:22px}
 .allload-btn.done .tick{background:var(--teal);border-color:var(--teal);color:#fff}
+.stock-page{min-width:0}
+.stock-site{scroll-margin-top:calc(var(--bar-h,96px) + 88px);margin:0 0 22px;min-width:0}
+.stock-site > h2{margin:4px 0 8px}
+.stock-subh{margin:16px 0 6px;font-size:.95rem;font-weight:800}
+.stocktools .wardjumps{position:static;top:auto;margin:8px 0 0;padding:0;background:transparent;box-shadow:none}
+.par-help{margin:0 0 8px}
 .codewrap .starbtn{position:absolute;top:2px;right:2px;width:28px;height:28px;border:0;background:transparent;
   font-size:14px;line-height:1;color:var(--muted);cursor:pointer;padding:0;z-index:2}
 .codewrap .starbtn.on{color:#c9a227}
@@ -530,7 +536,7 @@ h3{margin:10px 0 6px}
 (function(){
 "use strict";
 
-const VERSION = "1.7.2";
+const VERSION = "1.7.3";
 const STORE = "ward-run-v1";
 const TZ = "Australia/Sydney";
 const DOW = {Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6};
@@ -5457,7 +5463,7 @@ function restoreStockItem(siteId, codeId){
   }, 50);
 }
 
-function renderOnHandSite(siteId){
+function renderOnHandSite(siteId, opts){
   const site = siteById(siteId);
   const title = site ? site.name : siteId;
   const st = ensureStocktake(siteId);
@@ -5490,8 +5496,9 @@ function renderOnHandSite(siteId){
   const histLabel = hist.length
     ? `<p class="muted" style="margin:10px 0 0">Recent deliveries</p><ul class="deliv-hist">${hist.map(d => `<li>${esc(prettyDate(d.date))} · ${esc(d.code||d.name||"Item")} · ${esc(String(d.qty))} ${esc(d.unit)}</li>`).join("")}</ul>`
     : `<p class="muted" style="margin:10px 0 0">No added deliveries yet.</p>`;
+  const heading = (opts && opts.embedded) ? "" : `<h2>${esc(title)}</h2>`;
   return `<div class="card" data-oh-site="${esc(siteId)}">
-    <h2>${esc(title)}</h2>
+    ${heading}
     <p class="saved-at">${esc(formatStockSavedAt(st.savedAt))}</p>
     ${rows.join("") || (unused.length?"":'<div class="muted">No items on hand.</div>')}
     ${unused.length?`<div class="notinuse-head">Not in use</div>${unused.join("")}`:""}
@@ -5499,19 +5506,24 @@ function renderOnHandSite(siteId){
   </div>`;
 }
 
-function renderStock(){
-  const qid = "stock-q";
+function stockSiteList(){
+  const cur = currentSiteId();
+  const official = [SITE_POW, SITE_CH];
+  if (prabinAreaOn()) official.push(SITE_PRABIN);
+  const list = [];
+  if (official.includes(cur)) list.push(cur);
+  official.forEach(id => { if (!list.includes(id)) list.push(id); });
+  return list.length ? list : [SITE_CH];
+}
+function renderStockCountForm(siteId){
   const q = stockQuery.trim().toLowerCase();
-  const siteId = currentSiteId();
   const site = siteById(siteId);
   const siteName = site ? site.name : "this site";
   const st = ensureStocktake(siteId);
-  const dd = deliveryDraft(siteId);
   const codes = stockCodes(siteId);
   const formRows = codes.map(c => {
     const meta = displayMeta(c);
     const nm = (displayCode(c)+" "+(meta||"")+" "+(c.note||"")).toLowerCase();
-    const unit = stockUnit(c.unit);
     const val = stockDraftValue(siteId, c.id);
     return `<div class="stockrow" data-cid="${esc(c.id)}" data-name="${esc(nm)}"${q && !nm.includes(q) ? ' style="display:none"' : ''}>
       <div class="grow"><div class="code">${esc(displayCode(c))} ${kclBadge(c)}</div>
@@ -5519,20 +5531,26 @@ function renderStock(){
       <input class="stock-in" data-act="stock-count" data-cid="${esc(c.id)}" data-site="${esc(siteId)}" inputmode="numeric" type="number" min="0" step="1" value="${esc(val)}" placeholder="0" aria-label="Count for ${esc(displayCode(c))}">
     </div>`;
   }).join("");
+  const savedId = siteId===currentSiteId() ? ' id="stock-saved-at"' : "";
+  return `<div class="card" data-count-site="${esc(siteId)}">
+    <h2>Count — ${esc(siteName)} storeroom</h2>
+    <p class="muted">Enter today’s counts in whole boxes, then Save. Save replaces the on-hand total for each item you enter (a fresh stocktake). Leave a field blank to keep its current remaining total. Fields then reset to 0, ready for the next count. Ward deliveries are deducted as soon as you enter them, in boxes or each, as packets using packets per box.</p>
+    <button type="button" class="scanbtn" data-act="scan-stock" data-site="${esc(siteId)}"><span aria-hidden="true">📷</span>Scan to find an item</button>
+    ${formRows || '<div class="muted">No codes yet.</div>'}
+    <div class="btnrow" style="margin-top:10px"><button type="button" class="btn primary grow" data-act="stock-save" data-site="${esc(siteId)}">Save stocktake</button></div>
+    <p class="saved-at"${savedId} data-stock-saved="${esc(siteId)}">${esc(formatStockSavedAt(st.savedAt))}</p>
+  </div>`;
+}
+function renderStockDeliveryForm(siteId){
+  const site = siteById(siteId);
+  const siteName = site ? site.name : "this site";
+  const dd = deliveryDraft(siteId);
+  const codes = stockCodes(siteId);
   const options = ['<option value="">Pick an item</option>'].concat(codes.map(c => {
     const lab = [displayCode(c), c.name].filter(Boolean).join(" ");
     return `<option value="${esc(c.id)}" ${dd.codeId===c.id?"selected":""}>${esc(lab)}</option>`;
   })).join("");
-  const form = `<div class="card">
-    <h2>Count — ${esc(siteName)} storeroom</h2>
-    <p class="muted">Enter today’s counts in whole boxes, then Save. Save replaces the on-hand total for each item you enter (a fresh stocktake). Leave a field blank to keep its current remaining total. Fields then reset to 0, ready for the next count. Ward deliveries are deducted as soon as you enter them, in boxes or each, as packets using packets per box.</p>
-    <button type="button" class="scanbtn" data-act="scan-stock"><span aria-hidden="true">📷</span>Scan to find an item</button>
-    <input class="search" id="${qid}" data-act="filter-stock" placeholder="Search codes" type="search" enterkeyhint="search" value="${esc(stockQuery)}">
-    ${formRows || '<div class="muted">No codes yet.</div>'}
-    <div class="btnrow" style="margin-top:10px"><button type="button" class="btn primary grow" data-act="stock-save" data-site="${esc(siteId)}">Save stocktake</button></div>
-    <p class="saved-at" id="stock-saved-at">${esc(formatStockSavedAt(st.savedAt))}</p>
-  </div>`;
-  const add = `<div class="card stock-add">
+  return `<div class="card stock-add" data-deliv-site="${esc(siteId)}">
     <h2>Add delivery — ${esc(siteName)}</h2>
     <p class="muted">Newly received stock is added to on hand and listed in the delivery history. This is separate from a stocktake.</p>
     <div class="field"><label>Item</label><select data-act="stock-delivery-code" data-site="${esc(siteId)}">${options}</select></div>
@@ -5545,14 +5563,40 @@ function renderStock(){
     </div>
     <div class="btnrow"><button type="button" class="btn" data-act="stock-delivery-add" data-site="${esc(siteId)}">Add delivery</button></div>
   </div>`;
-  const onhand = `<h2 style="margin:16px 4px 8px">On hand</h2>
-    <p class="muted" style="margin:0 4px 8px">Calculated in real time as you enter each ward: last stocktake, plus deliveries added since, minus fluids entered on the wards. Unticking puts the quantity back. Carry-over and transfer do not deduct until ticked. Remaining stock becomes the next day’s starting stocktake.</p>
-    ${renderOnHandSite(SITE_POW)}
-    ${renderOnHandSite(SITE_CH)}
-    ${prabinAreaOn()?renderOnHandSite(SITE_PRABIN):""}`;
-  return form + add + onhand + renderParStock() + renderStocktakeCard() + `<p class="muted">Par stock is set in whole boxes, per hospital, in the Par stock card and is shared. Each/box pack sizes can be set in Setup. On-hand figures turn red at 5 boxes or fewer. Each hospital has its own storeroom.</p>` + brandFoot();
 }
-function renderParStockSite(siteId){
+function renderStockSite(siteId){
+  const site = siteById(siteId);
+  const name = site ? site.name : siteId;
+  return `<section class="stock-site" id="stock-${esc(siteId)}">
+    <h2>${esc(name)}</h2>
+    <h3 class="stock-subh">On hand</h3>
+    <p class="muted">Calculated in real time as you enter each ward: last stocktake, plus deliveries added since, minus fluids entered on the wards. Unticking puts the quantity back. Carry-over and transfer do not deduct until ticked. Remaining stock becomes the next day’s starting stocktake.</p>
+    ${renderOnHandSite(siteId, {embedded:true})}
+    <h3 class="stock-subh">Redo stocktake</h3>
+    ${renderStockCountForm(siteId)}
+    ${renderStockDeliveryForm(siteId)}
+    <h3 class="stock-subh">Par stock</h3>
+    <p class="muted par-help">The amount needed in storage per fluid to maintain and to prevent running out, in whole boxes. The Order tab pre-fills the shortfall (par minus on hand). Leave par blank if you’ll type the order yourself. This list is only for ${esc(name)} and is shared with both phones.</p>
+    ${renderParStockSite(siteId, {embedded:true})}
+  </section>`;
+}
+function renderStock(){
+  const sites = stockSiteList();
+  const qid = "stock-q";
+  const search = `<div class="wardtools stocktools">
+    <input class="search" id="${qid}" data-act="filter-stock" placeholder="Search codes" type="search" enterkeyhint="search" value="${esc(stockQuery)}" aria-label="Search stock codes">
+    <div class="wardjumps" role="navigation" aria-label="Jump to hospital">
+      ${[SITE_POW, SITE_CH].concat(prabinAreaOn()?[SITE_PRABIN]:[]).map(id => {
+        const site = siteById(id);
+        return `<button type="button" data-act="jump-stock-site" data-id="${esc(id)}" class="${id===currentSiteId()?"on":""}">${esc(site?site.name:id)}</button>`;
+      }).join("")}
+    </div>
+  </div>`;
+  const body = sites.map(renderStockSite).join("");
+  return `<div id="par-stock" class="stock-page">${search}${body}${renderStocktakeCard()}
+    <p class="muted">Par stock is set in whole boxes, separately for each hospital. Each hospital has its own storeroom, on-hand figure, stocktake and par list. Each/box pack sizes can be set in Setup. On-hand figures turn red at 5 boxes or fewer.</p>` + brandFoot() + `</div>`;
+}
+function renderParStockSite(siteId, opts){
   const site = siteById(siteId);
   const title = site ? site.name : siteId;
   const q = stockQuery.trim().toLowerCase();
@@ -5571,10 +5615,11 @@ function renderParStockSite(siteId){
       </label>
     </div>`;
   }).join("");
-  return `<div class="card" data-par-site="${esc(siteId)}"><h2>${esc(title)}</h2>${rows || '<div class="muted">No codes yet.</div>'}</div>`;
+  const heading = (opts && opts.embedded) ? "" : `<h2>${esc(title)}</h2>`;
+  return `<div class="card" data-par-site="${esc(siteId)}">${heading}${rows || '<div class="muted">No codes yet.</div>'}</div>`;
 }
 function renderParStock(){
-  return `<div class="card" id="par-stock">
+  return `<div class="card">
     <h2>Par stock</h2>
     <p class="muted">Set a par in whole boxes for each hospital. The Order tab pre-fills the shortfall (par minus on hand now). Leave par blank if you’ll type the order yourself. Changes are shared with both phones.</p>
     ${renderParStockSite(SITE_POW)}
@@ -6308,7 +6353,7 @@ document.addEventListener("click", (ev) => {
     return;
   }
   if (act==="scan-stock"){
-    openScanner(currentSiteId(), (c) => {
+    openScanner(b.dataset.site || currentSiteId(), (c) => {
       stockQuery = displayCode(c);
       render();
       const row = document.querySelector('.stockrow[data-cid="' + (window.CSS && CSS.escape ? CSS.escape(c.id) : c.id) + '"]');
@@ -6347,6 +6392,13 @@ document.addEventListener("click", (ev) => {
     const el = document.getElementById("trolley-" + b.dataset.wid);
     if (el) el.scrollIntoView({behavior:"smooth", block:"start"});
     document.querySelectorAll(".wardjumps [data-act=jump-ward]").forEach(x => x.classList.toggle("on", x.dataset.wid===b.dataset.wid));
+    return;
+  }
+  if (act==="jump-stock-site"){
+    if (b.dataset.id && b.dataset.id!==currentSiteId()) setCurrentSite(b.dataset.id);
+    const el = document.getElementById("stock-" + b.dataset.id);
+    if (el) el.scrollIntoView({behavior:"smooth", block:"start"});
+    document.querySelectorAll(".wardjumps [data-act=jump-stock-site]").forEach(x => x.classList.toggle("on", x.dataset.id===b.dataset.id));
     return;
   }
   if (act==="load-tick") toggleTrolleyLoaded(b.dataset.wid, b.dataset.cid);
