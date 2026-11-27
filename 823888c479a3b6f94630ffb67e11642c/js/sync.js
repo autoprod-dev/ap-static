@@ -121,9 +121,9 @@
   function DriveAppDataAdapter(opts){
     const api = opts.apiBase || 'https://www.googleapis.com/drive/v3';
     const up = opts.uploadBase || 'https://www.googleapis.com/upload/drive/v3';
-    // Google's access pass lasts about an hour; keep it across app restarts until it expires (it only covers the hidden app folder).
+    // Google's access pass lasts about an hour; keep it for this window only (sessionStorage), so other tabs on the same site can't read it (it only covers the hidden app folder).
     let token = null, tokenExp = 0, idCache = new Map();
-    try { const t = JSON.parse(localStorage.getItem('mo-gtoken') || 'null'); if (t && t.c === opts.clientId && t.e > Date.now() + 60000) { token = t.t; tokenExp = t.e; } } catch (e) {}
+    try { const t = JSON.parse(sessionStorage.getItem('mo-gtoken') || 'null'); if (t && t.c === opts.clientId && t.e > Date.now() + 60000) { token = t.t; tokenExp = t.e; } } catch (e) {}
     async function getToken(interactive){
       if (opts.getToken) return opts.getToken(interactive);
       if (token && Date.now() < tokenExp - 60000) return token;
@@ -133,7 +133,7 @@
         const tc = google.accounts.oauth2.initTokenClient({client_id: opts.clientId, scope:'https://www.googleapis.com/auth/drive.appdata', callback: r => {
           if (r.error) return rej(new Error(r.error));
           token = r.access_token; tokenExp = Date.now() + (r.expires_in||3600)*1000;
-          try { localStorage.setItem('mo-gtoken', JSON.stringify({t: token, e: tokenExp, c: opts.clientId})); } catch (e) {}
+          try { sessionStorage.setItem('mo-gtoken', JSON.stringify({t: token, e: tokenExp, c: opts.clientId})); } catch (e) {}
           res(token);
         }});
         tc.requestAccessToken({prompt: ''});
@@ -147,7 +147,7 @@
       const t = await getToken(false); if (!t) throw new Error('Not signed in');
       init = init || {}; init.headers = Object.assign({Authorization: 'Bearer ' + t}, init.headers || {});
       const r = await fetch(url, init);
-      if (r.status === 401) { token = null; try { localStorage.removeItem('mo-gtoken'); } catch (e) {} throw new Error('Sign-in expired'); }
+      if (r.status === 401) { token = null; try { sessionStorage.removeItem('mo-gtoken'); } catch (e) {} throw new Error('Sign-in expired'); }
       if (!r.ok) throw new Error('Drive error ' + r.status);
       return r;
     }
@@ -197,7 +197,7 @@
   }
   async function applyConfig(cfg){
     adapter = null;
-    if (!cfg || cfg.mode !== 'gdrive') { try { localStorage.removeItem('mo-gtoken'); } catch (e) {} }
+    if (!cfg || cfg.mode !== 'gdrive') { try { sessionStorage.removeItem('mo-gtoken'); } catch (e) {} }
     if (cfg && cfg.mode === 'gdrive' && cfg.clientId) adapter = DriveAppDataAdapter({clientId: cfg.clientId});
     if (cfg && cfg.mode === 'mock' && cfg.mockBase) adapter = DriveAppDataAdapter({label:'Test server (mock Drive)', apiBase: cfg.mockBase + '/drive/v3', uploadBase: cfg.mockBase + '/upload/drive/v3', getToken: async () => 'mock-token'});
     if (!adapter) setStatus({state:'off', text:'Sync off'});

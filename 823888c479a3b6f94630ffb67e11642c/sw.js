@@ -1,5 +1,5 @@
 /* Offline support: app shell is cached at install; libraries are cached on first use and warmed in the background. */
-const VERSION = 'my-office-v0.1.1';
+const VERSION = 'my-office-v0.1.1b';
 const SHELL = ['./', 'index.html', 'app.css', 'manifest.webmanifest', 'js/store.js', 'js/sync.js', 'js/core.js', 'js/docs.js', 'js/sheets.js', 'js/slides.js', 'js/pdfview.js', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png'];
 const VENDOR = ['vendor/mammoth.min.js', 'vendor/docx-kit.js', 'vendor/formula-engine.js', 'vendor/exceljs.min.js', 'vendor/pptxgen.bundle.js', 'vendor/jszip.min.js', 'vendor/pdf.js', 'vendor/pdf.worker.min.mjs'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
