@@ -82,6 +82,26 @@ a.btn:visited{color:var(--ink)}
 .codebtn.on{background:var(--teal-s);border-color:var(--teal);color:var(--teal-d)}
 .codebtn.hot{box-shadow:inset 0 0 0 2px var(--teal)}
 .fluid-search{margin:12px 0 8px}
+.fluid-search-wrap{position:relative;margin:0 0 10px}
+.fluid-search-wrap .fluid-search{margin:0;padding-right:44px}
+.fluid-search-wrap .search-clear{position:absolute;right:2px;top:50%;transform:translateY(-50%);width:40px;height:40px;border:0;background:transparent;
+  font-size:1.35rem;line-height:1;color:var(--muted);cursor:pointer;border-radius:10px}
+.fluid-search-wrap .search-clear:active{background:#eef3f5}
+.fluid-search::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none}
+.fluid-nomatch{margin:8px 0 4px;color:var(--muted);font-weight:800;text-align:center}
+.wardtabs{display:flex;gap:3px;margin:0 0 10px;background:#e6eeef;border-radius:12px;padding:3px}
+.wardtabs button{flex:1;min-height:44px;border:0;background:transparent;font-weight:800;border-radius:10px;cursor:pointer;color:var(--muted)}
+.wardtabs button.on{background:#fff;color:var(--teal-d);box-shadow:var(--shadow)}
+.wardjumps{position:sticky;top:var(--bar-h,96px);z-index:30;display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;
+  -webkit-overflow-scrolling:touch;background:var(--bg);padding:8px 12px 10px;margin:0 -12px 10px;scrollbar-width:none}
+.wardjumps::-webkit-scrollbar{display:none}
+.wardjumps button{flex:0 0 auto;min-height:40px;padding:6px 12px;border-radius:99px;border:1px solid var(--line);
+  background:#fff;font-weight:800;font-size:.82rem;white-space:nowrap;color:inherit;cursor:pointer}
+.wardjumps button.on{background:var(--teal-s);border-color:var(--teal);color:var(--teal-d)}
+.loadward,section.trolley{scroll-margin-top:calc(var(--bar-h,96px) + 52px)}
+.allload-btn{width:28px;height:28px;padding:0;border:0;background:transparent;display:grid;place-items:center;flex:none;cursor:pointer}
+.allload-btn .tick{width:22px;height:22px}
+.allload-btn.done .tick{background:var(--teal);border-color:var(--teal);color:#fff}
 .codewrap{position:relative;min-width:0}
 .codewrap .starbtn{position:absolute;top:0;right:0;width:28px;height:28px;border:0;background:transparent;
   font-size:14px;line-height:1;color:var(--muted);cursor:pointer;padding:0;z-index:1}
@@ -493,7 +513,7 @@ h3{margin:10px 0 6px}
 (function(){
 "use strict";
 
-const VERSION = "1.7.0";
+const VERSION = "1.7.1";
 const STORE = "ward-run-v1";
 const TZ = "Australia/Sydney";
 const DOW = {Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6};
@@ -662,6 +682,8 @@ let toastTimer = 0;
 let draftOrder = null;
 let stockQuery = "";
 let fluidQuery = "";
+let wardPane = "codes";
+let lastWardId = null;
 let usualExpanded = {};
 const USUAL_SHOW = 3;
 
@@ -2512,6 +2534,7 @@ function migrate(s){
   if (!s.rounds) s.rounds = {};
   if (!s.orders) s.orders = [];
   if (!s.trolley) s.trolley = {};
+  if (!s.trolleyLoad) s.trolleyLoad = {};
   if (!s.settings) s.settings = {};
   const st = s.settings;
   if (st.partnerName == null) st.partnerName = "";
@@ -3929,6 +3952,13 @@ function addCustomWard(name, siteId){
   shareKick();
   return w;
 }
+function renderFluidSearch(w){
+  const q = fluidQuery;
+  return `<div class="fluid-search-wrap">
+    <input class="search fluid-search" data-act="filter-fluid" data-wid="${esc(w.id)}" placeholder="Search codes or names" type="search" inputmode="search" enterkeyhint="search" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" value="${esc(q)}" aria-label="Search fluid codes">
+    <button type="button" class="search-clear" data-act="clear-fluid-search" aria-label="Clear search"${q?"":" hidden"}>×</button>
+  </div>`;
+}
 function renderFluidPicker(w, used){
   const sid = w.siteId || currentSiteId();
   const favs = favouriteCodes(sid);
@@ -3966,10 +3996,11 @@ function renderFluidPicker(w, used){
     if (!list.length || !blockVisible(list)) return "";
     return `<div class="fluid-group" data-group="${esc(g.id)}"><h3>${esc(g.label)}</h3><div class="codes">${list.map(codeCell).join("")}</div></div>`;
   }).join("");
+  const anyMatch = !q || siteCodes(sid).some(c => fluidSearchText(c).includes(q));
   return `
-    <input class="search fluid-search" data-act="filter-fluid" placeholder="Search codes or names" type="search" enterkeyhint="search" value="${esc(fluidQuery)}">
     ${favBlock}
     ${groupBlocks}
+    <p class="fluid-nomatch"${q && !anyMatch ? "" : " hidden"}>No match</p>
   `;
 }
 
@@ -4152,6 +4183,13 @@ function render(opts){
   renderBanners(z);
   const view = document.getElementById("view");
   const page = route.page;
+  if (page!=="round-ward") lastWardId = null;
+  else if (route.wardId !== lastWardId){
+    if (lastWardId!=null){ wardPane = "codes"; fluidQuery = ""; }
+    lastWardId = route.wardId;
+  }
+  const barEl = document.getElementById("appbar");
+  if (barEl) document.documentElement.style.setProperty("--bar-h", barEl.offsetHeight + "px");
   if (page==="round") view.innerHTML = renderRoundList(z);
   else if (page==="round-ward") view.innerHTML = renderRoundWard(z);
   else if (page==="trolleys") view.innerHTML = renderTrolleys(z);
@@ -4168,6 +4206,8 @@ function render(opts){
   const pin = () => window.scrollTo(0, y);
   pin();
   requestAnimationFrame(pin);
+  const bar2 = document.getElementById("appbar");
+  if (bar2) document.documentElement.style.setProperty("--bar-h", bar2.offsetHeight + "px");
   if (resumeScroll!=null){
     setTimeout(pin, 0);
     setTimeout(pin, 50);
@@ -4435,9 +4475,10 @@ function renderRoundWard(z){
   const st = e.status;
   const sp = siteProgress(w.siteId);
   const pct = sp.total ? Math.round(sp.done/sp.total*100) : 0;
-  return `
-    <div class="wardhead"><span class="chip">${sp.done}/${sp.total} wards</span><div class="progress"><span style="width:${pct}%"></span></div></div>
-    ${w.building||w.onCall||Array.isArray(w.days)||w.notes ? `<div class="card notesbox" style="min-height:0;padding:10px 12px">${w.building?`<div class="muted">${esc(w.building)}</div>`:""}<div><span class="daychip">${esc(fmtDays(w))}</span></div>${w.notes?`<div class="wardnote" style="margin-top:6px">${esc(w.notes)}</div>`:""}</div>`:""}
+  const notesOn = wardPane==="notes";
+  const notesMeta = w.building||w.onCall||Array.isArray(w.days)||w.notes ? `<div class="card notesbox" style="min-height:0;padding:10px 12px">${w.building?`<div class="muted">${esc(w.building)}</div>`:""}<div><span class="daychip">${esc(fmtDays(w))}</span></div>${w.notes?`<div class="wardnote" style="margin-top:6px">${esc(w.notes)}</div>`:""}</div>`:"";
+  const notesPane = `
+    ${notesMeta}
     <div class="privbox"><label for="priv-note">Private note (stays on this phone)</label>
       <textarea id="priv-note" data-act="ward-private" data-id="${esc(w.id)}" rows="2" placeholder="Extra notes stay on this phone only.">${esc(w.privateNote||"")}</textarea>
       <p class="muted" style="margin:6px 0 0">Extra notes stay on this phone only.</p>
@@ -4447,6 +4488,9 @@ function renderRoundWard(z){
       <button class="btn big grow ${st==="checked"?"ok":"primary"}" data-act="mark" data-wid="${esc(w.id)}" data-status="checked">${st==="checked"?"Done ✓ — tap to uncheck":"Mark done ✓"}</button>
     </div>
     ${renderUsualNeeds(w.id, z.iso, true)}
+  `;
+  const codesPane = `
+    ${renderFluidSearch(w)}
     ${renderQuickTaps(w)}
     <div class="card" style="margin-top:12px"><h2>This ward</h2>${lineHtml}</div>
     <button type="button" class="scanbtn" data-act="scan-ward" data-wid="${esc(w.id)}"><span aria-hidden="true">📷</span>Scan barcode</button>
@@ -4454,6 +4498,14 @@ function renderRoundWard(z){
     <div class="btnrow">
       <button class="btn block" data-act="other-code" data-wid="${esc(w.id)}">Other code…</button>
     </div>
+  `;
+  return `
+    <div class="wardhead"><span class="chip">${sp.done}/${sp.total} wards</span><div class="progress"><span style="width:${pct}%"></span></div></div>
+    <div class="wardtabs" role="tablist" aria-label="Ward sections">
+      <button type="button" role="tab" aria-selected="${notesOn?"false":"true"}" class="${notesOn?"":"on"}" data-act="ward-pane" data-pane="codes">Codes</button>
+      <button type="button" role="tab" aria-selected="${notesOn?"true":"false"}" class="${notesOn?"on":""}" data-act="ward-pane" data-pane="notes">Notes / Done</button>
+    </div>
+    ${notesOn ? notesPane : codesPane}
   `;
 }
 
@@ -4808,17 +4860,75 @@ function loadTrolleyRows(siteId, iso){
   Object.keys(bag).forEach(id => { if (!seen.has(id)) rows.push(bag[id]); });
   return rows;
 }
+function loadTickKey(day, wid, cid){ return day+"|"+wid+"|"+cid; }
+function isTrolleyLoaded(day, wid, cid){
+  return !!(S.trolleyLoad && S.trolleyLoad[day] && S.trolleyLoad[day][loadTickKey(day,wid,cid)]);
+}
+function setTrolleyLoaded(day, wid, cid, on){
+  if (!S.trolleyLoad) S.trolleyLoad = {};
+  if (!S.trolleyLoad[day]) S.trolleyLoad[day] = {};
+  const k = loadTickKey(day, wid, cid);
+  if (on) S.trolleyLoad[day][k] = true;
+  else delete S.trolleyLoad[day][k];
+}
+function toggleTrolleyLoaded(wid, cid){
+  if (!confirmLiveChange(siteOfWard(wid))) return;
+  const day = zonedNow().iso;
+  const on = !isTrolleyLoaded(day, wid, cid);
+  setTrolleyLoaded(day, wid, cid, on);
+  if (on){ sfx("tick"); buzz(8); }
+  save(); renderStay();
+}
+function toggleWardTrolleyLoaded(wid){
+  if (!confirmLiveChange(siteOfWard(wid))) return;
+  const day = zonedNow().iso;
+  const g = trolleyItems(zonedNow()).find(x => x.ward && x.ward.id===wid);
+  if (!g || !g.lines.length) return;
+  const all = g.lines.every(l => l && l.codeId && isTrolleyLoaded(day, wid, l.codeId));
+  g.lines.forEach(l => { if (l && l.codeId) setTrolleyLoaded(day, wid, l.codeId, !all); });
+  if (!all){ sfx("tick"); buzz(8); }
+  save(); renderStay();
+}
+function renderWardJumpChips(groups){
+  if (!groups.length) return "";
+  return `<div class="wardjumps" role="navigation" aria-label="Jump to ward">
+    ${groups.map(g => `<button type="button" data-act="jump-ward" data-wid="${esc(g.ward.id)}">${esc(g.ward.name)}</button>`).join("")}
+  </div>`;
+}
 function renderLoadTrolley(z){
-  const sid = currentSiteId();
-  const rows = loadTrolleyRows(sid, z.iso);
-  if (!rows.length) return `<div class="card"><h2>Load trolley</h2><p class="muted">No fluids entered on today’s round yet.</p></div>`;
-  const body = rows.map(r => {
-    const q = [];
-    if (r.box) q.push(r.box+" box");
-    if (r.ea) q.push(r.ea+" ea");
-    return `<div class="loadrow"><div class="grow"><div class="code">${esc(displayCodeLabel(r.c))}</div><div class="muted">${esc(displayMeta(r.c)||"")}</div></div><b>${esc(q.join(" + ")||"—")}</b></div>`;
+  const groups = trolleyItems(z);
+  if (!groups.length) return `<div class="card"><h2>Load trolley</h2><p class="muted">No fluids entered on today’s round yet.</p></div>`;
+  const day = z.iso;
+  const body = groups.map(g => {
+    const wid = g.ward.id;
+    const total = g.lines.length;
+    const done = g.lines.filter(l => l && l.codeId && isTrolleyLoaded(day, wid, l.codeId)).length;
+    const allOn = total>0 && done===total;
+    const rows = g.lines.map(l => {
+      const c = codeById(l.codeId);
+      if (!c) return "";
+      const u = lineUnit(l);
+      const q = l.qty==null||l.qty==="" ? u : (String(l.qty)+" "+u);
+      const on = isTrolleyLoaded(day, wid, l.codeId);
+      return `<div class="tickwrap">
+        <button type="button" class="tickrow ${on?"done":"open"}" data-act="load-tick" data-wid="${esc(wid)}" data-cid="${esc(c.id)}">
+          <span class="tick" aria-hidden="true">${on?"✓":""}</span>
+          <span class="grow"><span class="code">${esc(displayCodeLabel(c))}</span> ${esc(c.name||"")} ${c.kcl?'<span class="chip kcl">KCl</span>':''}
+            <div class="muted">${esc(q)}${c.note?" · "+esc(c.note):""}</div></span>
+        </button>
+      </div>`;
+    }).join("");
+    return `<section class="loadward trolley" id="trolley-${esc(wid)}">
+      <h2>
+        <button type="button" class="allload-btn ${allOn?"done":""}" data-act="load-tick-ward" data-wid="${esc(wid)}" aria-pressed="${allOn?"true":"false"}" aria-label="${allOn?"All loaded, tap to clear":"Mark all loaded"}">
+          <span class="tick" aria-hidden="true">${allOn?"✓":""}</span>
+        </button>
+        ${esc(g.ward.name)} <span class="chip ${allOn?"ok":"warn"}">${done}/${total}</span>
+      </h2>
+      ${rows}
+    </section>`;
   }).join("");
-  return `<div class="card"><h2>Load trolley</h2><p class="muted">Today’s entered list, added up per fluid, in shelf order.</p>${body}</div>`;
+  return `<div class="card"><h2>Load trolley</h2><p class="muted">Today’s entered list, grouped by ward in round order. Tick an item or the ward tick when it is loaded.</p>${body}</div>`;
 }
 function renderMissingBarcodes(){
   const miss = missingBarcodeCodes();
@@ -4918,9 +5028,10 @@ function renderOrderCloseoutText(z){
 
 function renderTrolleys(z){
   const groups = trolleyItems(z);
-  const extras = renderLoadTrolley(z) + renderCloseoutCard(z) + renderMissingBarcodes() +
+  const chips = renderWardJumpChips(groups);
+  const extras = renderCloseoutCard(z) + renderMissingBarcodes() +
     `<div class="btnrow" style="margin:8px 0 12px"><a class="btn" href="#spotcheck">Weekly spot-check</a></div>`;
-  if (!groups.length) return extras + `<div class="card empty">No pick list yet. Add codes on today’s round first.</div>` + brandFoot();
+  if (!groups.length) return chips + renderLoadTrolley(z) + extras + `<div class="card empty">No pick list yet. Add codes on today’s round first.</div>` + brandFoot();
   const ticks = S.trolley[z.iso] || {};
   const body = groups.map(g => {
     const total = g.lines.length;
@@ -4947,13 +5058,13 @@ function renderTrolleys(z){
         ${next?`<button type="button" class="btn" data-act="carry-over" data-wid="${esc(g.ward.id)}">Carry over unticked to ${esc(shortDate(next))}</button>`:""}
         <button type="button" class="btn" data-act="transfer-unticked" data-wid="${esc(g.ward.id)}">Transfer unticked…</button>
       </div>` : "";
-    return `<section class="trolley">
+    return `<section class="trolley" id="pick-${esc(g.ward.id)}">
       <h2>${esc(g.ward.name)} <span class="chip ${done===total?"ok":"warn"}">${done}/${total}</span></h2>
       ${rows}${acts}
     </section>`;
   }).join("");
   const undo = S.undoMove ? `<div class="btnrow noprint"><button type="button" class="btn" data-act="undo-move">Undo move to ${esc(shortDate(S.undoMove.toIso))}</button></div>` : "";
-  return extras + undo + body + brandFoot();
+  return chips + renderLoadTrolley(z) + undo + body + extras + brandFoot();
 }
 
 
@@ -5809,9 +5920,15 @@ function addCodeToWard(wid, cid){
   shareTouchLine(r.date || zonedNow().iso, wid, cid, false);
   shareTouchWard(r.date || zonedNow().iso, wid);
   markLineEntered(wid, cid);
+  const keepSearch = route.page==="round-ward";
+  fluidQuery = "";
   save(); renderStay(); shareKick();
   const ln = document.querySelector('.line[data-cid="' + (window.CSS && CSS.escape ? CSS.escape(cid) : cid) + '"]');
   if (ln) ln.classList.add("pulse");
+  if (keepSearch){
+    const inp = document.querySelector('input[data-act="filter-fluid"]');
+    if (inp){ inp.value = ""; inp.focus(); const clr=document.querySelector('[data-act=clear-fluid-search]'); if (clr) clr.hidden = true; }
+  }
 }
 function changeQty(wid, cid, dir){
   if (!confirmLiveChange(siteOfWard(wid))) return;
@@ -6179,6 +6296,33 @@ document.addEventListener("click", (ev) => {
   if (act==="suggest-add"){ addSuggested(b.dataset.wid, b.dataset.cid, b.dataset.qty, b.dataset.unit); return; }
   if (act==="suggest-more"){ usualExpanded[b.dataset.wid] = !usualExpanded[b.dataset.wid]; renderStay(); return; }
   if (act==="add-code") addCodeToWard(b.dataset.wid, b.dataset.cid);
+  if (act==="ward-pane"){
+    wardPane = b.dataset.pane==="notes" ? "notes" : "codes";
+    renderStay();
+    if (wardPane==="codes"){
+      const inp = document.querySelector('input[data-act="filter-fluid"]');
+      if (inp && fluidQuery) inp.focus();
+    }
+    return;
+  }
+  if (act==="clear-fluid-search"){
+    fluidQuery = "";
+    const inp = document.querySelector('input[data-act="filter-fluid"]');
+    if (inp){
+      inp.value = "";
+      inp.dispatchEvent(new Event("input", {bubbles:true}));
+      inp.focus();
+    }
+    return;
+  }
+  if (act==="jump-ward"){
+    const el = document.getElementById("trolley-" + b.dataset.wid);
+    if (el) el.scrollIntoView({behavior:"smooth", block:"start"});
+    document.querySelectorAll(".wardjumps [data-act=jump-ward]").forEach(x => x.classList.toggle("on", x.dataset.wid===b.dataset.wid));
+    return;
+  }
+  if (act==="load-tick") toggleTrolleyLoaded(b.dataset.wid, b.dataset.cid);
+  if (act==="load-tick-ward") toggleWardTrolleyLoaded(b.dataset.wid);
   if (act==="qty") changeQty(b.dataset.wid, b.dataset.cid, Number(b.dataset.dir));
   if (act==="line-unit") toggleLineUnit(b.dataset.wid, b.dataset.cid);
   if (act==="remove-line") removeLine(b.dataset.wid, b.dataset.cid);
@@ -6468,13 +6612,20 @@ document.addEventListener("input", (ev) => {
   if (act==="filter-fluid"){
     fluidQuery = t.value;
     const q = t.value.trim().toLowerCase();
+    let any = false;
     document.querySelectorAll(".codewrap").forEach(row => {
-      row.style.display = !q || (row.dataset.name||"").includes(q) ? "" : "none";
+      const show = !q || (row.dataset.name||"").includes(q);
+      row.style.display = show ? "" : "none";
+      if (show) any = true;
     });
     document.querySelectorAll(".fluid-group, .favblock").forEach(block => {
-      const any = Array.from(block.querySelectorAll(".codewrap")).some(el => el.style.display !== "none");
-      block.style.display = any ? "" : "none";
+      const vis = Array.from(block.querySelectorAll(".codewrap")).some(el => el.style.display !== "none");
+      block.style.display = vis ? "" : "none";
     });
+    const nom = document.querySelector(".fluid-nomatch");
+    if (nom){ if (q && !any) nom.removeAttribute("hidden"); else nom.setAttribute("hidden",""); }
+    const clr = document.querySelector('[data-act=clear-fluid-search]');
+    if (clr) clr.hidden = !t.value;
   }
   if (act==="stock-count"){
     setStockDraft(t.dataset.site || currentSiteId(), t.dataset.cid, t.value);
@@ -6577,9 +6728,20 @@ document.addEventListener("change", (ev) => {
   }
 });
 
+document.addEventListener("keydown", (ev) => {
+  const t = ev.target;
+  if (!t || !t.dataset || t.dataset.act!=="filter-fluid") return;
+  if (ev.key!=="Enter") return;
+  ev.preventDefault();
+  const vis = Array.from(document.querySelectorAll(".codewrap")).filter(el => el.style.display !== "none");
+  if (vis.length!==1) return;
+  const btn = vis[0].querySelector('[data-act=add-code]');
+  if (btn) btn.click();
+});
+
 window.addEventListener("hashchange", () => {
   if (!/^#stock/.test(location.hash)) stockQuery = "";
-  if (!/^#round\//.test(location.hash)) fluidQuery = "";
+  if (!/^#round\//.test(location.hash)){ fluidQuery = ""; wardPane = "codes"; }
   const raw = (location.hash||"").replace(/^#/, "");
   if (raw.indexOf("history/")===0){
     const day = decodeURIComponent(raw.slice(8));
