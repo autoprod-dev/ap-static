@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="theme-color" content="#1e3a5f">
+<meta name="description" content="Read and write ordinary NFC tags. This cannot copy keycards or fobs.">
+<title>NFC Tags</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand">
+      <img src="icons/icon-192.png" alt="" width="32" height="32">
+      <div>
+        <h1>NFC Tags</h1>
+        <p class="tagline">Ordinary tags only · private Autoprod tool</p>
+      </div>
+    </div>
+  </header>
+
+  <nav class="tabs" aria-label="Main">
+    <button type="button" class="tab on" data-tab="check" aria-selected="true">Check</button>
+    <button type="button" class="tab" data-tab="write" aria-selected="false">Write</button>
+    <button type="button" class="tab" data-tab="library" aria-selected="false">Library</button>
+  </nav>
+
+  <main>
+    <section id="view-check" class="view" data-view="check">
+      <div id="cap-card" class="card cap" role="status"></div>
+
+      <details class="card limits" id="limits-box" open>
+        <summary>What this app can and cannot do</summary>
+        <div class="limits-body">
+          <h2>It can</h2>
+          <ul>
+            <li>Read ordinary NFC stickers and tags that store a link, some text, a contact card or Wi-Fi details (these are called NDEF tags).</li>
+            <li>Write those same kinds of records onto a blank, writable sticker or tag.</li>
+            <li>Keep a library of tags on this phone, and export or import that list.</li>
+          </ul>
+          <h2>It cannot</h2>
+          <ul>
+            <li>Copy, clone or emulate a card or fob. Your phone cannot stand in for a keycard.</li>
+            <li>Read most office or hotel keycards. Those are usually encrypted, or use a type Chrome cannot open.</li>
+            <li>Read most car keys or many door fobs. Those often use a different radio (125 kHz) that phones do not support.</li>
+            <li>Work on iPhone. Apple does not let websites use NFC this way.</li>
+          </ul>
+        </div>
+      </details>
+
+      <div class="scan-panel card">
+        <button type="button" id="check-btn" class="btn primary xl">Check a card or tag</button>
+        <p class="hint" id="check-hint">Hold the card, fob or sticker against the back of your phone, near the top. Keep it still for a couple of seconds.</p>
+        <div id="scan-status" class="scan-status" hidden></div>
+      </div>
+
+      <div id="check-result" class="result" hidden></div>
+    </section>
+
+    <section id="view-write" class="view" data-view="write" hidden>
+      <div class="card">
+        <h2 class="card-title">Write a blank tag</h2>
+        <p class="muted">This overwrites a writable NFC sticker or tag. It will not work on a locked keycard, a car key or most door fobs.</p>
+        <label for="write-kind">What to write</label>
+        <select id="write-kind">
+          <option value="text">Text</option>
+          <option value="url">Link (URL)</option>
+          <option value="contact">Contact card</option>
+          <option value="wifi">Wi-Fi details</option>
+        </select>
+
+        <div id="fields-text" class="fields">
+          <label for="text-value">Text</label>
+          <textarea id="text-value" rows="3" placeholder="A short note"></textarea>
+        </div>
+        <div id="fields-url" class="fields" hidden>
+          <label for="url-value">Link</label>
+          <input id="url-value" type="url" inputmode="url" autocomplete="url" placeholder="https://example.com">
+        </div>
+        <div id="fields-contact" class="fields" hidden>
+          <label for="contact-name">Name</label>
+          <input id="contact-name" type="text" autocomplete="name" placeholder="Name">
+          <label for="contact-tel">Phone</label>
+          <input id="contact-tel" type="tel" autocomplete="tel" placeholder="Phone">
+          <label for="contact-email">Email</label>
+          <input id="contact-email" type="email" autocomplete="email" placeholder="Email">
+        </div>
+        <div id="fields-wifi" class="fields" hidden>
+          <label for="wifi-ssid">Network name (SSID)</label>
+          <input id="wifi-ssid" type="text" autocomplete="off" placeholder="Network name">
+          <label for="wifi-sec">Security</label>
+          <select id="wifi-sec">
+            <option value="wpa2">WPA2 / WPA3 (password)</option>
+            <option value="open">Open (no password)</option>
+          </select>
+          <label for="wifi-pass">Password</label>
+          <input id="wifi-pass" type="password" autocomplete="off" placeholder="Password">
+          <p class="muted small">If you later save this to your library, the password is stored on this device only.</p>
+        </div>
+
+        <label class="check-row"><input type="checkbox" id="write-save"> Also save this to my library</label>
+        <button type="button" id="write-btn" class="btn primary xl">Write to a tag</button>
+        <p class="hint">After you tap Write, hold a blank writable tag against the back of your phone, near the top, until Chrome finishes.</p>
+        <div id="write-status" class="scan-status" hidden></div>
+      </div>
+      <div id="write-result" class="result" hidden></div>
+    </section>
+
+    <section id="view-library" class="view" data-view="library" hidden>
+      <div class="lib-toolbar">
+        <h2 class="card-title">Saved tags</h2>
+        <div class="lib-actions">
+          <button type="button" id="export-btn" class="btn">Export</button>
+          <button type="button" id="import-btn" class="btn">Import</button>
+          <input type="file" id="import-file" accept="application/json,.json" hidden>
+        </div>
+      </div>
+      <p class="muted" id="lib-empty">Nothing saved yet. After a successful read, or when you write a tag, you can save it here. The list stays on this device.</p>
+      <ul id="lib-list" class="lib-list" hidden></ul>
+    </section>
+  </main>
+
+  <p class="foot">Private Autoprod tool · v0.1.0 · nothing is uploaded</p>
+</div>
+<div id="toast" class="toast" role="status" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
