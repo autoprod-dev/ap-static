@@ -75,13 +75,22 @@ a.btn:visited{color:var(--ink)}
 .chip.ok{background:var(--ok-s);color:var(--ok)}
 .chip.warn{background:var(--amber-s);color:var(--amber)}
 .chip.idle{background:#eef1f3}
-.codes{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.codebtn{min-height:52px;border:1px solid var(--line);background:var(--chip);border-radius:12px;
-  font-weight:700;padding:6px 4px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center}
-.codebtn .cn{font-size:.68rem;font-weight:600;color:var(--muted);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.codes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;width:100%;min-width:0}
+.codewrap{position:relative;min-width:0;max-width:100%;overflow:hidden}
+.codebtn{min-height:52px;width:100%;min-width:0;max-width:100%;overflow:hidden;box-sizing:border-box;
+  border:1px solid var(--line);background:var(--chip);border-radius:12px;
+  font-weight:700;padding:8px 18px 6px 4px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.codebtn .ccode{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:800}
+.codebtn .cn{font-size:.68rem;font-weight:600;color:var(--muted);max-width:100%;overflow:hidden;
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;
+  white-space:normal;word-break:break-word;overflow-wrap:anywhere;text-align:center;line-height:1.2}
 .codebtn.on{background:var(--teal-s);border-color:var(--teal);color:var(--teal-d)}
 .codebtn.hot{box-shadow:inset 0 0 0 2px var(--teal)}
 .fluid-search{margin:12px 0 8px}
+.wardtools{position:sticky;top:var(--bar-h,96px);z-index:35;background:var(--bg);
+  margin:0 -12px 8px;padding:4px 12px 8px;box-shadow:0 8px 12px -8px rgba(18,32,42,.16)}
+.wardtools .wardtabs{margin-bottom:8px}
+.wardtools .fluid-search-wrap{margin:0}
 .fluid-search-wrap{position:relative;margin:0 0 10px}
 .fluid-search-wrap .fluid-search{margin:0;padding-right:44px}
 .fluid-search-wrap .search-clear{position:absolute;right:2px;top:50%;transform:translateY(-50%);width:40px;height:40px;border:0;background:transparent;
@@ -102,9 +111,8 @@ a.btn:visited{color:var(--ink)}
 .allload-btn{width:28px;height:28px;padding:0;border:0;background:transparent;display:grid;place-items:center;flex:none;cursor:pointer}
 .allload-btn .tick{width:22px;height:22px}
 .allload-btn.done .tick{background:var(--teal);border-color:var(--teal);color:#fff}
-.codewrap{position:relative;min-width:0}
-.codewrap .starbtn{position:absolute;top:0;right:0;width:28px;height:28px;border:0;background:transparent;
-  font-size:14px;line-height:1;color:var(--muted);cursor:pointer;padding:0;z-index:1}
+.codewrap .starbtn{position:absolute;top:2px;right:2px;width:28px;height:28px;border:0;background:transparent;
+  font-size:14px;line-height:1;color:var(--muted);cursor:pointer;padding:0;z-index:2}
 .codewrap .starbtn.on{color:#c9a227}
 .fluid-group h3,.favblock h3{margin:14px 0 6px;font-size:.78rem;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
 .wardbar{height:3px;background:#e8ecef;border-radius:99px;margin-top:6px;overflow:hidden}
@@ -130,8 +138,17 @@ a.btn:visited{color:var(--ink)}
 .stepper .q{min-width:42px;text-align:center;font-weight:800;font-variant-numeric:tabular-nums}
 .trolley{margin-bottom:12px}
 .trolley h2{display:flex;align-items:center;gap:8px}
-.tickrow{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 10px;min-height:56px;
-  border:1px solid var(--line);background:var(--card);border-radius:12px;margin-bottom:8px}
+.tickwrap{min-width:0;width:100%;max-width:100%}
+.tickrow{display:flex;align-items:center;gap:10px;width:100%;min-width:0;max-width:100%;text-align:left;padding:10px 10px;min-height:56px;
+  border:1px solid var(--line);background:var(--card);border-radius:12px;margin-bottom:8px;overflow:hidden}
+.tickrow .grow{min-width:0;overflow:hidden}
+.tickrow .code,.tickrow .muted,.missrow .code,.missrow .muted,.loadrow .code,.loadrow .muted,.co-row .code,.co-row .muted,.line .code,.line .muted{
+  overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.tickrow .muted,.missrow .muted,.loadrow .muted,.co-row .muted,.line .muted{
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;white-space:normal;word-break:break-word;overflow-wrap:anywhere}
+.tickrow .code{white-space:nowrap}
+.missrow,.loadrow,.co-row,.line{min-width:0;max-width:100%}
+.missrow .grow,.loadrow .grow,.co-row .grow,.line .grow{min-width:0;overflow:hidden}
 .tickrow.open{background:var(--amber-s);border-color:#f3c77a;box-shadow:0 0 0 2px rgba(217,119,6,.12)}
 .tickrow.done{opacity:.62}
 .tickrow.done .code{text-decoration:line-through}
@@ -279,8 +296,8 @@ body{background:radial-gradient(1200px 400px at 50% -120px,#dbe9ff 0%,rgba(219,2
 .wardhead{display:flex;align-items:center;gap:10px;margin-bottom:10px}
 .wardhead .progress{flex:1;height:10px;margin:0;background:#e2e8f0}
 .wardhead .progress>span{background:var(--grad)}
-.codes{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
-.codebtn{min-width:0;border-radius:14px;background:#fff;border:1px solid var(--line);box-shadow:0 1px 0 rgba(18,32,42,.04);transition:transform .12s}
+.codes{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;width:100%;min-width:0}
+.codebtn{min-width:0;width:100%;max-width:100%;overflow:hidden;border-radius:14px;background:#fff;border:1px solid var(--line);box-shadow:0 1px 0 rgba(18,32,42,.04);transition:transform .12s}
 .codebtn:active{transform:scale(.94)}
 .codebtn.hot{box-shadow:inset 0 0 0 2px var(--vio);background:linear-gradient(180deg,#faf5ff,#fff)}
 .codebtn.on{background:linear-gradient(135deg,#ccfbf1,#e0e7ff);border-color:var(--teal);color:#134e4a}
@@ -453,7 +470,7 @@ label.btn{cursor:pointer}
 /* v1.4.8 compact fluid lists — tap targets stay ≥40px */
 h3{margin:10px 0 6px}
 .codes{gap:6px}
-.codebtn{min-height:40px;padding:3px 4px;border-radius:10px;font-size:.78rem;line-height:1.15}
+.codebtn{min-height:40px;padding:6px 16px 4px 4px;border-radius:10px;font-size:.78rem;line-height:1.15}
 .codebtn .cn{font-size:.58rem}
 .line{padding:4px 0;gap:6px}
 .line .code{font-size:.88rem}
@@ -513,7 +530,7 @@ h3{margin:10px 0 6px}
 (function(){
 "use strict";
 
-const VERSION = "1.7.1";
+const VERSION = "1.7.2";
 const STORE = "ward-run-v1";
 const TZ = "Australia/Sydney";
 const DOW = {Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6};
@@ -3980,7 +3997,7 @@ function renderFluidPicker(w, used){
     const hide = q && !nm.includes(q);
     return `<div class="codewrap" data-name="${esc(nm)}"${hide?' style="display:none"':""}>
       <button type="button" class="codebtn${used.has(c.id)?" on":""}${c.kcl?" kcl":""}" data-act="add-code" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}">
-        ${esc(displayCodeLabel(c))}${sub}
+        <span class="ccode">${esc(displayCodeLabel(c))}</span>${sub}
       </button>
       <button type="button" class="starbtn${on?" on":""}" data-act="star-fluid" data-cid="${esc(c.id)}" aria-label="${on?"Unstar":"Star"}">${on?"★":"☆"}</button>
     </div>`;
@@ -4214,7 +4231,15 @@ function render(opts){
     setTimeout(pin, 200);
   }
   maybeNotify(z);
+  pinBarHeight();
 }
+function pinBarHeight(){
+  const bar = document.getElementById("appbar");
+  if (bar) document.documentElement.style.setProperty("--bar-h", Math.round(bar.getBoundingClientRect().height) + "px");
+}
+window.addEventListener("resize", pinBarHeight);
+if (window.visualViewport) visualViewport.addEventListener("resize", pinBarHeight);
+
 function renderStay(){ keepScroll = true; render({keepScroll:true}); }
 
 function renderSiteToggle(){
@@ -4490,7 +4515,6 @@ function renderRoundWard(z){
     ${renderUsualNeeds(w.id, z.iso, true)}
   `;
   const codesPane = `
-    ${renderFluidSearch(w)}
     ${renderQuickTaps(w)}
     <div class="card" style="margin-top:12px"><h2>This ward</h2>${lineHtml}</div>
     <button type="button" class="scanbtn" data-act="scan-ward" data-wid="${esc(w.id)}"><span aria-hidden="true">📷</span>Scan barcode</button>
@@ -4499,12 +4523,16 @@ function renderRoundWard(z){
       <button class="btn block" data-act="other-code" data-wid="${esc(w.id)}">Other code…</button>
     </div>
   `;
-  return `
-    <div class="wardhead"><span class="chip">${sp.done}/${sp.total} wards</span><div class="progress"><span style="width:${pct}%"></span></div></div>
+  const tools = `<div class="wardtools">
     <div class="wardtabs" role="tablist" aria-label="Ward sections">
       <button type="button" role="tab" aria-selected="${notesOn?"false":"true"}" class="${notesOn?"":"on"}" data-act="ward-pane" data-pane="codes">Codes</button>
       <button type="button" role="tab" aria-selected="${notesOn?"true":"false"}" class="${notesOn?"on":""}" data-act="ward-pane" data-pane="notes">Notes / Done</button>
     </div>
+    ${notesOn ? "" : renderFluidSearch(w)}
+  </div>`;
+  return `
+    <div class="wardhead"><span class="chip">${sp.done}/${sp.total} wards</span><div class="progress"><span style="width:${pct}%"></span></div></div>
+    ${tools}
     ${notesOn ? notesPane : codesPane}
   `;
 }
