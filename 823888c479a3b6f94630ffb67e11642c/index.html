@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#0f766e">
+<title>My Office</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="app">
+  <section id="home" class="view">
+    <header class="topbar home-top">
+      <div class="brand"><img src="icons/icon-192.png" alt="" width="32" height="32"><span>My Office</span></div>
+      <div class="top-actions">
+        <button class="chip" id="sync-chip" title="Sync">Sync off</button>
+        <button class="icon-btn" id="settings-btn" aria-label="Settings">⚙︎</button>
+      </div>
+    </header>
+    <main class="home-main">
+      <div class="new-grid">
+        <button class="new-card" data-new="doc"><span class="nc-icon doc">¶</span><span>New document</span></button>
+        <button class="new-card" data-new="sheet"><span class="nc-icon sheet">⊞</span><span>New spreadsheet</span></button>
+        <button class="new-card" data-new="slides"><span class="nc-icon slides">▶</span><span>New presentation</span></button>
+        <button class="new-card" id="open-btn"><span class="nc-icon open">⇪</span><span>Open a file</span></button>
+      </div>
+      <input type="file" id="file-input" accept=".docx,.xlsx,.pptx,.pdf,.csv" hidden multiple>
+      <div class="recent-head">
+        <h2>Recent</h2>
+        <input type="search" id="recent-search" placeholder="Search files" aria-label="Search files">
+      </div>
+      <ul id="recent-list" class="recent-list"></ul>
+      <p id="recent-empty" class="muted" hidden>No files yet. Create one above, or open a .docx, .xlsx, .pptx or .pdf.</p>
+      <p class="muted small foot">Files are kept on this device. Nothing is uploaded unless you turn on sync.</p>
+    </main>
+  </section>
+
+  <section id="editor" class="view" hidden>
+    <header class="topbar ed-top">
+      <button class="icon-btn" id="back-btn" aria-label="Back to home">‹</button>
+      <span class="kind-badge" id="kind-badge"></span>
+      <input id="title-input" class="title-input" aria-label="File name" spellcheck="false">
+      <span class="save-state muted small" id="save-state"></span>
+      <div class="menu-wrap">
+        <button class="btn primary" id="save-btn" title="Save to device">Save</button>
+        <button class="icon-btn" id="menu-btn" aria-label="More">⋯</button>
+        <div class="menu" id="file-menu" hidden></div>
+      </div>
+    </header>
+    <div id="editor-host" class="editor-host"></div>
+  </section>
+
+  <section id="settings" class="view" hidden>
+    <header class="topbar"><button class="icon-btn" id="settings-back" aria-label="Back">‹</button><h1 class="tb-title">Settings</h1></header>
+    <main class="settings-main" id="settings-main"></main>
+  </section>
+</div>
+<div id="toast" class="toast" role="status" hidden></div>
+<div id="loading" class="loading" hidden><div class="spinner"></div><span id="loading-text">Loading…</span></div>
+<script src="js/store.js"></script>
+<script src="js/sync.js"></script>
+<script src="js/core.js"></script>
+</body>
+</html>
