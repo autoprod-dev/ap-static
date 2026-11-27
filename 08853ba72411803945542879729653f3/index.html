@@ -378,7 +378,17 @@ label.btn{cursor:pointer}
 .nopack{display:inline-block;margin-left:4px;padding:1px 6px;border-radius:99px;background:#f1f5f9;color:var(--muted);font-size:.65rem;font-weight:800;letter-spacing:.02em}
 .stock-unused{opacity:.62}
 .stock-unused .code,.stock-unused .muted{color:var(--muted)}
-.oh-neg{color:var(--red);font-weight:800}
+.oh-neg{color:var(--red);font-weight:800} /* leftover class; v1.7.4 no longer marks low stock red */
+.unused-block{margin-top:10px}
+.unused-tog{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--card);border:1px dashed var(--line);border-radius:12px;padding:10px 12px;color:var(--ink);font:inherit;font-weight:700;cursor:pointer;text-align:left}
+.unused-tog .chip{flex:none;background:var(--chip);color:var(--ink);font-size:12px;font-weight:800}
+.unused-body{margin-top:8px}
+.codewrap.unused,.favbtn.unused,.qbtn.unused,.oh-row.unused,.stockrow.unused,.par-row.unused,.unused-item{opacity:.55;filter:grayscale(1)}
+.codewrap.unused .bring-back,.oh-row.unused .bring-back,.stockrow.unused .bring-back,.par-row.unused .bring-back{opacity:1;filter:none}
+.bring-back{margin-top:6px;font-size:12px;font-weight:700;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:999px;padding:4px 10px;cursor:pointer}
+.flag-order{display:inline-block;margin-top:4px;padding:2px 8px;border-radius:999px;background:var(--amber-s);color:var(--amber);font-size:11px;font-weight:800;letter-spacing:.01em}
+.low-banner{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px;color:#7c4a00}
+.order-note{margin-top:4px}
 .oh-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
 .oh-row:last-child{border-bottom:0}
 .oh-qty{font-weight:800;white-space:nowrap}
@@ -536,7 +546,7 @@ h3{margin:10px 0 6px}
 (function(){
 "use strict";
 
-const VERSION = "1.7.3";
+const VERSION = "1.7.4";
 const STORE = "ward-run-v1";
 const TZ = "Australia/Sydney";
 const DOW = {Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6};
@@ -705,6 +715,7 @@ let toastTimer = 0;
 let draftOrder = null;
 let stockQuery = "";
 let fluidQuery = "";
+let unusedOpen = {};
 let wardPane = "codes";
 let lastWardId = null;
 let usualExpanded = {};
@@ -2456,7 +2467,7 @@ function defaultState(){
 function load(){
   try{
     const raw = localStorage.getItem(STORE);
-    if (!raw){ S = defaultState(); save(); return; }
+    if (!raw){ S = defaultState(); migrate(S); save(); return; }
     S = JSON.parse(raw);
     migrate(S);
     draftOrder = S.draftOrder || null;
@@ -2740,6 +2751,7 @@ function migrate(s){
   if (!s.stocktake || typeof s.stocktake!=="object") s.stocktake = {};
   if (!Array.isArray(s.stockDeliveries)) s.stockDeliveries = [];
   if (!s.stockRestored || typeof s.stockRestored!=="object") s.stockRestored = {};
+  if (!s.fluidUse || typeof s.fluidUse!=="object") s.fluidUse = {};
   if (!s.stockDeliveryDraft || typeof s.stockDeliveryDraft!=="object") s.stockDeliveryDraft = {};
   if (st.staffName == null) st.staffName = "";
   initStocktakeFromExisting(s);
@@ -2759,6 +2771,15 @@ function migrate(s){
     });
     sh.barcodesSeeded = true;
   })(s);
+  if (!s.ch0164FirstOrder){
+    const key = SITE_CH+"|c-0164";
+    const cur = s.fluidUse[key] || {active:false, firstOrder:false};
+    s.fluidUse[key] = {active:true, firstOrder:true};
+    /* Do not invent or change the Children's 0164 par. */
+    const sh = ensureShare(s);
+    if (!sh.useAt[key]) sh.useAt[key] = shareNow();
+    s.ch0164FirstOrder = 1;
+  }
   s.version = Math.max(Number(s.version)||1, 2);
   s.appVersion = VERSION;
 }
@@ -2792,7 +2813,8 @@ const SHARE_TABLE = {
   par: "ward_run_code_par",
   wardDefs: "ward_run_ward_defs",
   barcodes: "ward_run_barcodes",
-  closeouts: "ward_run_closeouts"
+  closeouts: "ward_run_closeouts",
+  codeUse: "ward_run_code_use"
 };
 
 let shareBusy = false;
@@ -2800,7 +2822,7 @@ let shareAgain = false;
 let shareTimer = 0;
 let shareApplying = false;
 let shareStarted = false;
-const shareRemoteAt = {ticks:{}, lines:{}, wards:{}, stock:{}, baseline:{}, ticked:{}, deliveries:{}, restored:{}, pack:{}, par:{}, defs:{}, barcodes:{}, closeouts:{}};
+const shareRemoteAt = {ticks:{}, lines:{}, wards:{}, stock:{}, baseline:{}, ticked:{}, deliveries:{}, restored:{}, pack:{}, par:{}, defs:{}, barcodes:{}, closeouts:{}, codeUse:{}};
 
 function shareNow(){ return new Date().toISOString(); }
 function tsMs(s){ const n = Date.parse(s||""); return Number.isFinite(n) ? n : 0; }
@@ -2889,6 +2911,7 @@ function ensureShare(s){
   sh.defGone = sh.defGone && typeof sh.defGone==="object" ? sh.defGone : {};
   sh.barcodeAt = sh.barcodeAt && typeof sh.barcodeAt==="object" ? sh.barcodeAt : {};
   sh.closeoutAt = sh.closeoutAt && typeof sh.closeoutAt==="object" ? sh.closeoutAt : {};
+  sh.useAt = sh.useAt && typeof sh.useAt==="object" ? sh.useAt : {};
   if (!sh.status) sh.status = navigator.onLine ? "pending" : "offline";
   return sh;
 }
@@ -3573,7 +3596,7 @@ function collectPushStock(){
 }
 
 async function sharePull(){
-  const [ticks, lines, wards, stocktakes, baseline, ticked, deliveries, restored, pack, par, defs, barcodes, closeouts] = await Promise.all([
+  const [ticks, lines, wards, stocktakes, baseline, ticked, deliveries, restored, pack, par, defs, barcodes, closeouts, codeUse] = await Promise.all([
     shareSelect(SHARE_TABLE.ticks),
     shareSelect(SHARE_TABLE.lines),
     shareSelect(SHARE_TABLE.wards),
@@ -3586,7 +3609,8 @@ async function sharePull(){
     shareSelect(SHARE_TABLE.par),
     shareSelectOptional(SHARE_TABLE.wardDefs),
     shareSelectOptional(SHARE_TABLE.barcodes),
-    shareSelectOptional(SHARE_TABLE.closeouts)
+    shareSelectOptional(SHARE_TABLE.closeouts),
+    shareSelectOptional(SHARE_TABLE.codeUse)
   ]);
   shareApplying = true;
   let changed = false;
@@ -3604,6 +3628,7 @@ async function sharePull(){
     (defs||[]).forEach(r => { if (applyRemoteWardDef(r)) changed = true; });
     (barcodes||[]).forEach(r => { if (applyRemoteBarcode(r)) changed = true; });
     (closeouts||[]).forEach(r => { if (applyRemoteCloseout(r)) changed = true; });
+    (codeUse||[]).forEach(r => { if (applyRemoteCodeUse(r)) changed = true; });
     applyOfficialNames(S);
     if (changed) syncCodeStockFromOnHand();
   } finally {
@@ -3627,6 +3652,7 @@ async function sharePush(){
   await shareUpsertOptional(SHARE_TABLE.wardDefs, "ward_id", collectPushWardDefs());
   await shareUpsertOptional(SHARE_TABLE.barcodes, "barcode", collectPushBarcodes());
   await shareUpsertOptional(SHARE_TABLE.closeouts, "id", collectPushCloseouts());
+  await shareUpsertOptional(SHARE_TABLE.codeUse, "site_id,code_id", collectPushCodeUse());
 }
 
 async function shareSync(){
@@ -3982,6 +4008,26 @@ function renderFluidSearch(w){
     <button type="button" class="search-clear" data-act="clear-fluid-search" aria-label="Clear search"${q?"":" hidden"}>×</button>
   </div>`;
 }
+function syncUnusedBlocks(q){
+  document.querySelectorAll(".unused-block").forEach(block => {
+    const items = Array.from(block.querySelectorAll(".codewrap, .stockrow, .oh-row, .par-row"));
+    const any = items.some(el => el.style.display !== "none");
+    block.style.display = items.length && (any || !q) ? (any ? "" : "none") : (items.length ? "" : "none");
+    if (!items.length){ block.style.display = "none"; return; }
+    block.style.display = any ? "" : "none";
+    const body = block.querySelector(".unused-body");
+    const tog = block.querySelector(".unused-tog");
+    const key = block.getAttribute("data-unused-key");
+    if (body && q && any){
+      body.hidden = false;
+      if (tog) tog.setAttribute("aria-expanded","true");
+    } else if (body && !q){
+      const open = !!(key && unusedOpen[key]);
+      body.hidden = !open;
+      if (tog) tog.setAttribute("aria-expanded", open?"true":"false");
+    }
+  });
+}
 function renderFluidPicker(w, used){
   const sid = w.siteId || currentSiteId();
   const favs = favouriteCodes(sid);
@@ -3991,38 +4037,46 @@ function renderFluidPicker(w, used){
   siteCodes(sid).forEach(c => { if (c && !seen.has(c.id)){ seen.add(c.id); rest.push(c); } });
   const groups = {};
   FLUID_GROUPS.forEach(g => { groups[g.id] = []; });
+  const unused = [];
   rest.forEach(c => {
+    if (!isFluidUsedAt(sid, c.id)){ unused.push(c); return; }
     const gid = fluidGroupId(c);
     (groups[gid] || groups.other).push(c);
   });
   const q = fluidQuery.trim().toLowerCase();
-  function codeCell(c){
+  function codeCell(c, inUnused){
     const sub = c.tickOnly ? "" : (c.name?`<span class="cn">${esc(c.name)}</span>`:"") + kclMark(c) + (c.note?`<span class="cn shelfnote">${esc(c.note)}</span>`:"");
     const on = favIds.has(c.id);
     const nm = fluidSearchText(c);
     const hide = q && !nm.includes(q);
-    return `<div class="codewrap" data-name="${esc(nm)}"${hide?' style="display:none"':""}>
+    const dim = !isFluidUsedAt(sid, c.id);
+    return `<div class="codewrap${dim?" unused":""}" data-name="${esc(nm)}"${hide?' style="display:none"':""}>
       <button type="button" class="codebtn${used.has(c.id)?" on":""}${c.kcl?" kcl":""}" data-act="add-code" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}">
         <span class="ccode">${esc(displayCodeLabel(c))}</span>${sub}
       </button>
       <button type="button" class="starbtn${on?" on":""}" data-act="star-fluid" data-cid="${esc(c.id)}" aria-label="${on?"Unstar":"Star"}">${on?"★":"☆"}</button>
+      ${dim?bringBackBtn(sid, c.id):""}
     </div>`;
   }
   function blockVisible(list){
     return list.some(c => !q || fluidSearchText(c).includes(q));
   }
   const favBlock = favs.length && blockVisible(favs)
-    ? `<div class="favblock"><h3>Favourites</h3><div class="codes">${favs.map(codeCell).join("")}</div></div>`
-    : (favs.length && q ? "" : (favs.length ? `<div class="favblock"><h3>Favourites</h3><div class="codes">${favs.map(codeCell).join("")}</div></div>` : ""));
+    ? `<div class="favblock"><h3>Favourites</h3><div class="codes">${favs.map(c => codeCell(c)).join("")}</div></div>`
+    : (favs.length && q ? "" : (favs.length ? `<div class="favblock"><h3>Favourites</h3><div class="codes">${favs.map(c => codeCell(c)).join("")}</div></div>` : ""));
   const groupBlocks = FLUID_GROUPS.map(g => {
     const list = groups[g.id]||[];
     if (!list.length || !blockVisible(list)) return "";
-    return `<div class="fluid-group" data-group="${esc(g.id)}"><h3>${esc(g.label)}</h3><div class="codes">${list.map(codeCell).join("")}</div></div>`;
+    return `<div class="fluid-group" data-group="${esc(g.id)}"><h3>${esc(g.label)}</h3><div class="codes">${list.map(c => codeCell(c)).join("")}</div></div>`;
   }).join("");
+  const unusedMatch = unused.some(c => !q || fluidSearchText(c).includes(q));
+  const unusedHtml = unused.map(c => codeCell(c, true)).join("");
+  const unusedBlock = renderUnusedGroup(sid, "picker", unusedHtml, unused.length, !!(q && unusedMatch));
   const anyMatch = !q || siteCodes(sid).some(c => fluidSearchText(c).includes(q));
   return `
     ${favBlock}
     ${groupBlocks}
+    ${unusedBlock}
     <p class="fluid-nomatch"${q && !anyMatch ? "" : " hidden"}>No match</p>
   `;
 }
@@ -4094,10 +4148,99 @@ function setCodePar(c, value){
   save();
   shareKick();
 }
+function fluidUseKey(siteId, cid){ return siteId+"|"+cid; }
+function ensureFluidUse(s){
+  s = s || S;
+  if (!s.fluidUse || typeof s.fluidUse!=="object") s.fluidUse = {};
+  return s.fluidUse;
+}
+function getFluidUse(siteId, cid){
+  return ensureFluidUse()[fluidUseKey(siteId, cid)] || {active:false, firstOrder:false};
+}
+function isFluidUsedAt(siteId, cid){
+  const c = codeById(cid);
+  if (!c) return false;
+  if (parBoxes(c) > 0) return true;
+  return !!getFluidUse(siteId, cid).active;
+}
+function isFirstOrder(siteId, cid){
+  return !!getFluidUse(siteId, cid).firstOrder;
+}
+function setFluidUse(siteId, cid, patch){
+  if (!siteId || !cid) return;
+  const bag = ensureFluidUse();
+  const key = fluidUseKey(siteId, cid);
+  const cur = bag[key] || {active:false, firstOrder:false};
+  bag[key] = {
+    active: !!(patch && patch.active!=null ? patch.active : cur.active),
+    firstOrder: !!(patch && patch.firstOrder!=null ? patch.firstOrder : cur.firstOrder)
+  };
+  shareTouchFluidUse(siteId, cid);
+  save();
+  shareKick();
+}
+function setFluidActive(siteId, cid, on){
+  setFluidUse(siteId, cid, {active: !!on});
+}
+function clearFirstOrder(siteId, cid){
+  if (!isFirstOrder(siteId, cid)) return;
+  setFluidUse(siteId, cid, {firstOrder:false});
+}
+function unusedCodes(siteId){
+  return stockCodes(siteId).filter(c => c && !c.tickOnly && !isFluidUsedAt(siteId, c.id));
+}
+function usedStockCodes(siteId){
+  return stockCodes(siteId).filter(c => c && !c.tickOnly && isFluidUsedAt(siteId, c.id));
+}
+function onHandBoxCount(siteId, cid){
+  return onHandBoxes(onHandUnits(siteId, cid));
+}
+function isHalfParOrLess(siteId, c){
+  if (!c || !isFluidUsedAt(siteId, c.id)) return false;
+  const par = parBoxes(c);
+  if (!par) return false;
+  return onHandBoxCount(siteId, c.id) <= (par / 2);
+}
+function topUpBoxes(siteId, c){
+  const par = parBoxes(c);
+  if (!par) return 0;
+  return Math.max(0, Math.ceil(par - onHandBoxCount(siteId, c.id)));
+}
+function halfParCount(siteId){
+  return usedStockCodes(siteId).filter(c => isHalfParOrLess(siteId, c)).length;
+}
+function orderLineReason(siteId, c){
+  if (!c || !isFluidUsedAt(siteId, c.id)) return "";
+  if (isFirstOrder(siteId, c.id)) return "New – first order";
+  if (isHalfParOrLess(siteId, c)) return "Order – half par or less";
+  return "";
+}
+function halfParBadge(reason){
+  if (!reason) return "";
+  return `<span class="flag-order">${esc(reason)}</span>`;
+}
+function unusedToggleKey(kind, siteId){ return kind+"|"+siteId; }
+function renderUnusedGroup(siteId, kind, itemsHtml, n, forceOpen){
+  if (!n) return "";
+  const site = siteById(siteId);
+  const name = site ? site.name : "this hospital";
+  const key = unusedToggleKey(kind, siteId);
+  const explicit = unusedOpen[key];
+  const open = !!forceOpen || explicit===true || (explicit==null && usedStockCodes(siteId).length===0 && n>0);
+  return `<div class="unused-block" data-unused-key="${esc(key)}">
+    <button type="button" class="unused-tog" data-act="toggle-unused" data-key="${esc(key)}" aria-expanded="${open?"true":"false"}">Not used at ${esc(name)} <span class="chip">${n}</span></button>
+    <div class="unused-body"${open?"":" hidden"}>${itemsHtml}</div>
+  </div>`;
+}
+function bringBackBtn(siteId, cid){
+  return `<button type="button" class="bring-back" data-act="use-fluid" data-site="${esc(siteId)}" data-cid="${esc(cid)}">Bring back</button>`;
+}
 function suggestedOrderQty(siteId, c){
+  if (!c || !isFluidUsedAt(siteId, c.id)) return "";
+  if (!isFirstOrder(siteId, c.id) && !isHalfParOrLess(siteId, c)) return "";
   const par = parBoxes(c);
   if (!par) return "";
-  return Math.max(0, par - closingBoxesFor(siteId, c.id));
+  return topUpBoxes(siteId, c);
 }
 function orderQtyValue(line){
   if (!line || line.qty==="" || line.qty==null) return "";
@@ -4111,7 +4254,9 @@ function orderHasQty(line){
 function formatOrderLineText(line, c){
   if (!c || !orderHasQty(line)) return "";
   const label = (c.tickOnly || !c.code) ? (c.name||"") : (c.code + (c.name?" "+c.name:""));
-  return label + " x " + Number(line.qty) + " box";
+  let out = label + " x " + Number(line.qty) + " box";
+  if (line.reason) out += "  (" + line.reason + ")";
+  return out;
 }
 function orderCatalogLines(siteId, prev){
   const pop = popularity();
@@ -4122,15 +4267,19 @@ function orderCatalogLines(siteId, prev){
   function add(c){
     if (!c || c.tickOnly || seen.has(c.id)) return;
     if (c.siteId && c.siteId!==siteId) return;
-    seen.add(c.id);
     const p = prev && prev[c.id];
+    const used = isFluidUsedAt(siteId, c.id);
+    if (!used && !p) return;
+    seen.add(c.id);
     const sug = suggestedOrderQty(siteId, c);
     const edited = !!(p && p.edited);
+    const reason = orderLineReason(siteId, c);
     lines.push({
       codeId:c.id,
       qty: edited ? (p.qty==null?"":p.qty) : sug,
       suggested: sug,
       edited,
+      reason,
       unit: "box"
     });
   }
@@ -4139,7 +4288,9 @@ function orderCatalogLines(siteId, prev){
   if (prev){
     Object.keys(prev).forEach(id => add(codeById(id)));
   }
-  return lines;
+  const needs = [], rest = [];
+  lines.forEach(l => (l.reason || (l.qty!=="" && l.qty!=null && Number(l.qty)>0) ? needs : rest).push(l));
+  return needs.concat(rest);
 }
 function suggestOrder(siteId){
   /* kept name: builds the To order list, most-used first, with empty qtys */
@@ -4359,12 +4510,12 @@ function renderQuickTaps(w){
   if (!ids.length){
     const favs = favouriteCodes(w.siteId).slice(0, 6);
     if (!favs.length) return "";
-    const btns = favs.map(c => `<button type="button" class="btn" data-act="add-code" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}">${esc(displayCodeLabel(c))}</button>`).join("");
+    const btns = favs.map(c => `<button type="button" class="btn qbtn${!isFluidUsedAt(w.siteId, c.id)?" unused":""}" data-act="add-code" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}">${esc(displayCodeLabel(c))}</button>`).join("");
     return `<div class="card" style="padding:10px 12px"><div class="muted" style="margin-bottom:6px">Quick tap</div><div class="quicktaps">${btns}</div></div>`;
   }
   const btns = ids.map(id => {
     const c = codeById(id);
-    return `<button type="button" class="btn" data-act="add-code" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}">${esc(displayCodeLabel(c))}</button>`;
+    return `<button type="button" class="btn qbtn${!isFluidUsedAt(w.siteId, c.id)?" unused":""}" data-act="add-code" data-wid="${esc(w.id)}" data-cid="${esc(c.id)}">${esc(displayCodeLabel(c))}</button>`;
   }).join("");
   return `<div class="card" style="padding:10px 12px"><div class="muted" style="margin-bottom:6px">Quick tap</div><div class="quicktaps">${btns}</div></div>`;
 }
@@ -4796,6 +4947,49 @@ function collectPushCloseouts(){
       updated_at: sh.closeoutAt[c.id],
       device_id: sh.deviceId,
       actor: c.actor || staffName()||null
+    });
+  });
+  return rows;
+}
+function shareTouchFluidUse(siteId, cid){
+  if (shareApplying || !siteId || !cid) return;
+  const sh = ensureShare();
+  sh.useAt[siteId+"|"+cid] = shareNow();
+  sh.status = navigator.onLine ? "pending" : "offline";
+}
+function applyRemoteCodeUse(row){
+  const siteId = row.site_id, cid = row.code_id;
+  if (!siteId || !cid) return false;
+  const key = siteId+"|"+cid;
+  const sh = ensureShare();
+  if (!tsNewer(row.updated_at, sh.useAt[key])) {
+    shareRemoteAt.codeUse[key] = row.updated_at;
+    return false;
+  }
+  sh.useAt[key] = row.updated_at;
+  shareRemoteAt.codeUse[key] = row.updated_at;
+  const bag = ensureFluidUse();
+  bag[key] = {active: !!row.active, firstOrder: !!row.first_order};
+  return true;
+}
+function collectPushCodeUse(){
+  const sh = ensureShare();
+  const rows = [];
+  const bag = ensureFluidUse();
+  Object.keys(bag).forEach(key => {
+    if (!sh.useAt[key]) return;
+    if (!tsNewer(sh.useAt[key], shareRemoteAt.codeUse[key])) return;
+    const p = String(key).split("|");
+    if (p.length<2) return;
+    const rec = bag[key] || {};
+    rows.push({
+      site_id: p[0],
+      code_id: p[1],
+      active: !!rec.active,
+      first_order: !!rec.firstOrder,
+      updated_at: sh.useAt[key],
+      device_id: sh.deviceId,
+      actor: staffName()||null
     });
   });
   return rows;
@@ -5470,38 +5664,58 @@ function renderOnHandSite(siteId, opts){
   const restored = (S.stockRestored && S.stockRestored[siteId]) || {};
   const q = stockQuery.trim().toLowerCase();
   const rows = [];
-  const unused = [];
+  const zeroUnused = [];
+  const notUsed = [];
   stockCodes(siteId).forEach(c => {
+    const nm = (displayCode(c)+" "+(displayMeta(c)||"")+" "+(c.note||"")).toLowerCase();
+    const hideSearch = q && !nm.includes(q);
+    const meta = displayMeta(c);
     const u = onHandUnits(siteId, c.id);
+    const half = isHalfParOrLess(siteId, c);
+    const flag = half ? halfParBadge("Order – half par or less") : "";
+    if (!isFluidUsedAt(siteId, c.id)){
+      const row = `<div class="oh-row unused" data-cid="${esc(c.id)}" data-name="${esc(nm)}"${hideSearch?' style="display:none"':""}>
+        <div class="grow"><div class="code">${esc(displayCode(c))} ${kclBadge(c)}</div>
+          <div class="muted">${meta?esc(meta):""}${c.note?" · "+esc(c.note):""}</div></div>
+        <div class="oh-qty">${esc(formatStockQty(u))}</div>
+        ${bringBackBtn(siteId, c.id)}
+      </div>`;
+      notUsed.push(row);
+      return;
+    }
     const known = (st.baseline && st.baseline[c.id]) || !onHandIsZero(u) || restored[c.id]
       || (S.stockDeliveries||[]).some(d => d.siteId===siteId && d.codeId===c.id);
     if (!known) return;
-    const nm = (displayCode(c)+" "+(displayMeta(c)||"")+" "+(c.note||"")).toLowerCase();
-    if (q && !nm.includes(q)) return;
     const zero = onHandIsZero(u);
     const neg = onHandIsNeg(u);
-    const low = onHandBoxes(u) <= 5;
     const hide = zero && !neg && !restored[c.id];
-    const meta = displayMeta(c);
-    const row = `<div class="oh-row ${hide|| (zero&&!neg)?"stock-unused":""}" data-cid="${esc(c.id)}" data-name="${esc(nm)}">
+    const row = `<div class="oh-row ${hide|| (zero&&!neg)?"stock-unused":""}" data-cid="${esc(c.id)}" data-name="${esc(nm)}"${hideSearch?' style="display:none"':""}>
       <div class="grow"><div class="code">${esc(displayCode(c))} ${kclBadge(c)}</div>
-        <div class="muted">${meta?esc(meta):""}${c.note?" · "+esc(c.note):""}</div></div>
-      <div class="oh-qty ${low?"oh-neg":""}">${esc(formatStockQty(u))}</div>
+        <div class="muted">${meta?esc(meta):""}${c.note?" · "+esc(c.note):""}</div>
+        ${flag}
+      </div>
+      <div class="oh-qty">${esc(formatStockQty(u))}</div>
       ${hide?`<button type="button" class="btn ghost" data-act="stock-restore" data-site="${esc(siteId)}" data-cid="${esc(c.id)}">Bring back</button>`:""}
     </div>`;
-    if (hide) unused.push(row);
+    if (hide) zeroUnused.push(row);
     else rows.push(row);
   });
+  const notUsedMatch = !q || notUsed.some(html => html.indexOf('style="display:none"')===-1);
+  const unusedBlock = renderUnusedGroup(siteId, "onhand", notUsed.join(""), notUsed.length, !!(q && notUsedMatch));
   const hist = (S.stockDeliveries||[]).filter(d => d.siteId===siteId).slice().sort((a,b) => String(b.addedAt||"").localeCompare(String(a.addedAt||""))).slice(0,8);
   const histLabel = hist.length
     ? `<p class="muted" style="margin:10px 0 0">Recent deliveries</p><ul class="deliv-hist">${hist.map(d => `<li>${esc(prettyDate(d.date))} · ${esc(d.code||d.name||"Item")} · ${esc(String(d.qty))} ${esc(d.unit)}</li>`).join("")}</ul>`
     : `<p class="muted" style="margin:10px 0 0">No added deliveries yet.</p>`;
   const heading = (opts && opts.embedded) ? "" : `<h2>${esc(title)}</h2>`;
+  const halfN = halfParCount(siteId);
+  const banner = halfN ? `<p class="low-banner">${halfParBadge("Order – half par or less")} ${halfN} fluid${halfN===1?"":"s"} at this hospital</p>` : "";
   return `<div class="card" data-oh-site="${esc(siteId)}">
     ${heading}
+    ${banner}
     <p class="saved-at">${esc(formatStockSavedAt(st.savedAt))}</p>
-    ${rows.join("") || (unused.length?"":'<div class="muted">No items on hand.</div>')}
-    ${unused.length?`<div class="notinuse-head">Not in use</div>${unused.join("")}`:""}
+    ${rows.join("") || (zeroUnused.length || notUsed.length?"":'<div class="muted">No items on hand.</div>')}
+    ${zeroUnused.length?`<div class="notinuse-head">Not in use</div>${zeroUnused.join("")}`:""}
+    ${unusedBlock}
     ${histLabel}
   </div>`;
 }
@@ -5520,23 +5734,35 @@ function renderStockCountForm(siteId){
   const site = siteById(siteId);
   const siteName = site ? site.name : "this site";
   const st = ensureStocktake(siteId);
-  const codes = stockCodes(siteId);
-  const formRows = codes.map(c => {
+  function countRow(c, dim){
     const meta = displayMeta(c);
     const nm = (displayCode(c)+" "+(meta||"")+" "+(c.note||"")).toLowerCase();
     const val = stockDraftValue(siteId, c.id);
-    return `<div class="stockrow" data-cid="${esc(c.id)}" data-name="${esc(nm)}"${q && !nm.includes(q) ? ' style="display:none"' : ''}>
+    const half = isHalfParOrLess(siteId, c);
+    return `<div class="stockrow${dim?" unused":""}" data-cid="${esc(c.id)}" data-name="${esc(nm)}"${q && !nm.includes(q) ? ' style="display:none"' : ''}>
       <div class="grow"><div class="code">${esc(displayCode(c))} ${kclBadge(c)}</div>
-        <div class="muted">${meta?esc(meta):""}${c.note?" · "+esc(c.note):""}</div></div>
+        <div class="muted">${meta?esc(meta):""}${c.note?" · "+esc(c.note):""}</div>
+        ${half?halfParBadge("Order – half par or less"):""}
+        ${dim?bringBackBtn(siteId, c.id):""}
+      </div>
       <input class="stock-in" data-act="stock-count" data-cid="${esc(c.id)}" data-site="${esc(siteId)}" inputmode="numeric" type="number" min="0" step="1" value="${esc(val)}" placeholder="0" aria-label="Count for ${esc(displayCode(c))}">
     </div>`;
-  }).join("");
+  }
+  const used = usedStockCodes(siteId);
+  const unused = unusedCodes(siteId);
+  const formRows = used.map(c => countRow(c, false)).join("");
+  const unusedMatch = unused.some(c => {
+    const nm = (displayCode(c)+" "+(displayMeta(c)||"")+" "+(c.note||"")).toLowerCase();
+    return !q || nm.includes(q);
+  });
+  const unusedBlock = renderUnusedGroup(siteId, "count", unused.map(c => countRow(c, true)).join(""), unused.length, !!(q && unusedMatch));
   const savedId = siteId===currentSiteId() ? ' id="stock-saved-at"' : "";
   return `<div class="card" data-count-site="${esc(siteId)}">
     <h2>Count — ${esc(siteName)} storeroom</h2>
     <p class="muted">Enter today’s counts in whole boxes, then Save. Save replaces the on-hand total for each item you enter (a fresh stocktake). Leave a field blank to keep its current remaining total. Fields then reset to 0, ready for the next count. Ward deliveries are deducted as soon as you enter them, in boxes or each, as packets using packets per box.</p>
     <button type="button" class="scanbtn" data-act="scan-stock" data-site="${esc(siteId)}"><span aria-hidden="true">📷</span>Scan to find an item</button>
     ${formRows || '<div class="muted">No codes yet.</div>'}
+    ${unusedBlock}
     <div class="btnrow" style="margin-top:10px"><button type="button" class="btn primary grow" data-act="stock-save" data-site="${esc(siteId)}">Save stocktake</button></div>
     <p class="saved-at"${savedId} data-stock-saved="${esc(siteId)}">${esc(formatStockSavedAt(st.savedAt))}</p>
   </div>`;
@@ -5548,7 +5774,8 @@ function renderStockDeliveryForm(siteId){
   const codes = stockCodes(siteId);
   const options = ['<option value="">Pick an item</option>'].concat(codes.map(c => {
     const lab = [displayCode(c), c.name].filter(Boolean).join(" ");
-    return `<option value="${esc(c.id)}" ${dd.codeId===c.id?"selected":""}>${esc(lab)}</option>`;
+    const mark = isFluidUsedAt(siteId, c.id) ? "" : " (not used)";
+    return `<option value="${esc(c.id)}" ${dd.codeId===c.id?"selected":""}>${esc(lab+mark)}</option>`;
   })).join("");
   return `<div class="card stock-add" data-deliv-site="${esc(siteId)}">
     <h2>Add delivery — ${esc(siteName)}</h2>
@@ -5576,7 +5803,7 @@ function renderStockSite(siteId){
     ${renderStockCountForm(siteId)}
     ${renderStockDeliveryForm(siteId)}
     <h3 class="stock-subh">Par stock</h3>
-    <p class="muted par-help">The amount needed in storage per fluid to maintain and to prevent running out, in whole boxes. The Order tab pre-fills the shortfall (par minus on hand). Leave par blank if you’ll type the order yourself. This list is only for ${esc(name)} and is shared with both phones.</p>
+    <p class="muted par-help">The amount needed in storage per fluid to maintain and to prevent running out, in whole boxes. If on hand is at or below half of par, the Order tab flags the fluid and pre-fills a top-up to par. Leave par blank if you don’t use the fluid at this hospital. This list is only for ${esc(name)} and is shared with both phones.</p>
     ${renderParStockSite(siteId, {embedded:true})}
   </section>`;
 }
@@ -5594,34 +5821,45 @@ function renderStock(){
   </div>`;
   const body = sites.map(renderStockSite).join("");
   return `<div id="par-stock" class="stock-page">${search}${body}${renderStocktakeCard()}
-    <p class="muted">Par stock is set in whole boxes, separately for each hospital. Each hospital has its own storeroom, on-hand figure, stocktake and par list. Each/box pack sizes can be set in Setup. On-hand figures turn red at 5 boxes or fewer.</p>` + brandFoot() + `</div>`;
+    <p class="muted">Par stock is set in whole boxes, separately for each hospital. Each hospital has its own storeroom, on-hand figure, stocktake and par list. Each/box pack sizes can be set in Setup. Fluids with no par sit in a greyed “Not used at this hospital” group until you set a par or choose Bring back. On hand at or below half of par is flagged in amber and added to the next order as a top-up to par.</p>` + brandFoot() + `</div>`;
 }
 function renderParStockSite(siteId, opts){
   const site = siteById(siteId);
   const title = site ? site.name : siteId;
   const q = stockQuery.trim().toLowerCase();
-  const rows = stockCodes(siteId).filter(c => !c.tickOnly).map(c => {
+  function parRow(c, dim){
     const meta = displayMeta(c);
     const nm = (displayCode(c)+" "+(meta||"")+" "+(c.note||"")).toLowerCase();
     const u = onHandUnits(siteId, c.id);
     const par = parBoxes(c);
-    return `<div class="par-row line" data-cid="${esc(c.id)}" data-name="${esc(nm)}"${q && !nm.includes(q) ? ' style="display:none"' : ""}>
+    const half = isHalfParOrLess(siteId, c);
+    return `<div class="par-row line${dim?" unused":""}" data-cid="${esc(c.id)}" data-name="${esc(nm)}"${q && !nm.includes(q) ? ' style="display:none"' : ""}>
       <div class="grow"><div class="code">${esc(displayCode(c))} ${kclBadge(c)}</div>
         <div class="muted">${meta?esc(meta):""}</div>
-        <div class="muted">On hand: <span class="oh-qty ${onHandBoxes(u)<=5?"oh-neg":""}">${esc(formatOnHand(u))}</span></div>
+        <div class="muted">On hand: <span class="oh-qty">${esc(formatOnHand(u))}</span></div>
+        ${half?halfParBadge("Order – half par or less"):""}
+        ${dim?bringBackBtn(siteId, c.id):""}
       </div>
       <label class="muted" style="flex:none;text-align:right">Par (box)
         <input class="stock-in" data-act="code-par" data-id="${esc(c.id)}" inputmode="numeric" type="number" min="0" step="1" value="${par?esc(String(par)):""}" placeholder="—" aria-label="Par boxes for ${esc(displayCode(c))}">
       </label>
     </div>`;
-  }).join("");
+  }
+  const used = usedStockCodes(siteId);
+  const unused = unusedCodes(siteId);
+  const rows = used.map(c => parRow(c, false)).join("");
+  const unusedMatch = unused.some(c => {
+    const nm = (displayCode(c)+" "+(displayMeta(c)||"")+" "+(c.note||"")).toLowerCase();
+    return !q || nm.includes(q);
+  });
+  const unusedBlock = renderUnusedGroup(siteId, "par", unused.map(c => parRow(c, true)).join(""), unused.length, !!(q && unusedMatch));
   const heading = (opts && opts.embedded) ? "" : `<h2>${esc(title)}</h2>`;
-  return `<div class="card" data-par-site="${esc(siteId)}">${heading}${rows || '<div class="muted">No codes yet.</div>'}</div>`;
+  return `<div class="card" data-par-site="${esc(siteId)}">${heading}${rows || (unused.length?"":'<div class="muted">No codes yet.</div>')}${unusedBlock}</div>`;
 }
 function renderParStock(){
   return `<div class="card">
     <h2>Par stock</h2>
-    <p class="muted">Set a par in whole boxes for each hospital. The Order tab pre-fills the shortfall (par minus on hand now). Leave par blank if you’ll type the order yourself. Changes are shared with both phones.</p>
+    <p class="muted">Set a par in whole boxes for each hospital. If on hand is at or below half of par, the Order tab flags the fluid and pre-fills a top-up to par. Leave par blank if you don’t use the fluid at that hospital. Changes are shared with both phones.</p>
     ${renderParStockSite(SITE_POW)}
     ${renderParStockSite(SITE_CH)}
     ${prabinAreaOn()?renderParStockSite(SITE_PRABIN):""}
@@ -5670,15 +5908,20 @@ function renderOrder(z){
     const pack = packSize(c);
     const units = onHandUnits(d.siteId, c.id);
     const oh = formatOnHand(units);
-    const low = onHandBoxes(units) <= 5;
     const par = parBoxes(c);
     const nopack = !pack ? `<span class="nopack">No pack size</span>` : "";
     const qtyVal = l.qty==="" || l.qty==null ? "" : l.qty;
     const parLabel = par ? ("Par: " + par + " box") : "No par";
-    return `<div class="line" data-cid="${esc(c.id)}">
+    const reason = l.reason || orderLineReason(d.siteId, c);
+    const flag = halfParBadge(reason);
+    const keepNote = (l.edited && l.suggested!=="" && l.suggested!=null && String(l.qty)!==String(l.suggested))
+      ? `<div class="muted order-note">Suggested ${esc(String(l.suggested))} box. Keeping your quantity.</div>`
+      : "";
+    return `<div class="line${reason?" needs-order":""}" data-cid="${esc(c.id)}" data-reason="${esc(reason)}">
       <div class="grow"><div class="code">${esc(displayCode(c))} ${kclBadge(c)}${nopack}</div>
         <div class="muted">${esc(displayMeta(c)||"")}</div>
-        <div class="muted">On hand now: <span class="order-oh oh-qty ${low?"oh-neg":""}">${esc(oh)}</span> · ${esc(parLabel)}</div>
+        <div class="muted">On hand now: <span class="order-oh oh-qty">${esc(oh)}</span> · ${esc(parLabel)}</div>
+        ${flag}${keepNote}
       </div>
       <div class="stepper">
         <button type="button" data-act="order-qty" data-dir="-1" data-cid="${esc(c.id)}" aria-label="Decrease">−</button>
@@ -5689,6 +5932,9 @@ function renderOrder(z){
     </div>`;
   }).join("") || `<div class="muted">No codes on this site yet. Add a code to start a list.</div>`;
   const sent = orderSentOn(z.iso);
+  const halfN = halfParCount(d.siteId);
+  const firstN = (d.lines||[]).filter(l => l.reason==="New – first order").length;
+  const orderBanner = (halfN || firstN) ? `<p class="low-banner">${halfN?halfParBadge("Order – half par or less")+" "+halfN+" to top up. ":""}${firstN?halfParBadge("New – first order")+" "+firstN+" newly added.":""}</p>` : "";
   return `
     <div class="card">
       <label class="row" style="gap:8px"><input type="checkbox" data-act="urgent" ${d.urgent?"checked":""}> Urgent order</label>
@@ -5696,9 +5942,9 @@ function renderOrder(z){
         <input type="date" data-act="delivery" value="${esc(d.expectedDelivery)}">
         <p class="muted">${esc(prettyDate(d.expectedDelivery))} (Australia/Sydney)</p>
       </div>
-      <p class="muted">If a close-out was saved today, quantities use those closing totals versus pars. Otherwise they use on hand now. If a par is set, the quantity is pre-filled with the shortfall in whole boxes — you can still edit it. Items without a par start empty. Copy the close-out order as text for WhatsApp (it is not sent from here). Set par stock on the Stock tab.</p>
+      <p class="muted">A fluid is added to the order when on hand is at or below half of its par, with the quantity set to top it up to par in whole boxes. Newly added fluids are also listed as “New – first order”. You can still edit any quantity. A quantity you type by hand is kept if the suggestion later changes. Fluids that are not used at this hospital are left off the list. Copy the close-out order as text for WhatsApp (it is not sent from here). Set par stock on the Stock tab.</p>
     </div>
-    <div class="card"><h2>To order</h2>${lines}</div>
+    <div class="card"><h2>To order</h2>${orderBanner}${lines}</div>
     <div class="btnrow">
       <button class="btn" data-act="order-add">Add code…</button>
       <button class="btn" data-act="order-refresh">Recalculate</button>
@@ -6439,6 +6685,21 @@ document.addEventListener("click", (ev) => {
     save(); renderStay(); return;
   }
   if (act==="stock-restore"){ restoreStockItem(b.dataset.site, b.dataset.cid); return; }
+  if (act==="use-fluid"){
+    setFluidActive(b.dataset.site, b.dataset.cid, true);
+    renderStay();
+    toast("Brought back — set a par when you know it");
+    return;
+  }
+  if (act==="toggle-unused"){
+    const key = b.dataset.key;
+    unusedOpen[key] = !unusedOpen[key];
+    const block = b.closest(".unused-block");
+    const body = block && block.querySelector(".unused-body");
+    if (body) body.hidden = !unusedOpen[key];
+    b.setAttribute("aria-expanded", unusedOpen[key] ? "true" : "false");
+    return;
+  }
   if (act==="other-code"){
     const ward = wardById(b.dataset.wid);
     const sid = ward ? ward.siteId : currentSiteId();
@@ -6531,6 +6792,7 @@ document.addEventListener("click", (ev) => {
       lines: sentLines.map(l => ({codeId:l.codeId, qty:l.qty, unit:"box"})),
       message: orderMessage(Object.assign({}, d, {lines:sentLines}))
     });
+    sentLines.forEach(l => { if (l && l.codeId) clearFirstOrder(d.siteId, l.codeId); });
     save();
     render();
     toast("Order logged · delivery " + shortDate(d.expectedDelivery));
@@ -6645,6 +6907,7 @@ document.addEventListener("change", (ev) => {
   if (act==="code-par"){
     const c = codeById(t.dataset.id); if (!c) return;
     setCodePar(c, t.value);
+    renderStay();
   }
   if (act==="stock-delivery-code"){
     deliveryDraft(t.dataset.site || currentSiteId()).codeId = t.value;
@@ -6666,6 +6929,7 @@ document.addEventListener("input", (ev) => {
     document.querySelectorAll(".stockrow, .oh-row, .par-row").forEach(row => {
       row.style.display = !q || (row.dataset.name||"").includes(q) ? "" : "none";
     });
+    syncUnusedBlocks(q);
   }
   if (act==="spot-count"){
     const sid = currentSiteId();
@@ -6706,6 +6970,7 @@ document.addEventListener("input", (ev) => {
     if (nom){ if (q && !any) nom.removeAttribute("hidden"); else nom.setAttribute("hidden",""); }
     const clr = document.querySelector('[data-act=clear-fluid-search]');
     if (clr) clr.hidden = !t.value;
+    syncUnusedBlocks(q);
   }
   if (act==="stock-count"){
     setStockDraft(t.dataset.site || currentSiteId(), t.dataset.cid, t.value);
@@ -6865,7 +7130,7 @@ if (!location.hash){
 } else render();
 
 if (/[?&]e2e=1(?:&|$)/.test(location.search)){
-  window.__fr = {applyRemoteBarcode, linkBarcode, renderOrderCloseoutText, zonedNow, bLoad, bSave, latestCloseout, saveDailyCloseout, missingBarcodeCodes, render, save, codeById, setCodePar, S, patch(fn){ fn(S, G); save(); }};
+  window.__fr = {applyRemoteBarcode, linkBarcode, renderOrderCloseoutText, zonedNow, bLoad, bSave, latestCloseout, saveDailyCloseout, missingBarcodeCodes, render, save, codeById, setCodePar, unusedCodes, usedStockCodes, stockCodes, isFluidUsedAt, getFluidUse, isFirstOrder, isHalfParOrLess, onHandBoxCount, suggestedOrderQty, orderLineReason, parBoxes, S, patch(fn){ fn(S, G); save(); }, clearDraft(){ draftOrder=null; S.draftOrder=null; }};
 }
 if ("serviceWorker" in navigator && !/e2e=1/.test(location.search)){
   navigator.serviceWorker.register("sw.js").catch(()=>{});
